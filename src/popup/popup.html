@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verifie</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1 class="logo">Verifie</h1>
+      <div class="header-actions">
+        <button class="btn-icon" id="btn-settings" title="Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="timeline">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        Document
+      </button>
+      <button class="tab" data-tab="replay">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        Replay
+      </button>
+      <button class="tab" data-tab="stats">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+        Stats
+      </button>
+      <button class="tab" data-tab="breakdown">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        Breakdown
+      </button>
+      <button class="tab" data-tab="ai-detection">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+          <path d="M8 21h8"></path>
+          <path d="M12 17v4"></path>
+          <path d="M9 10h6"></path>
+          <path d="M9 14h6"></path>
+        </svg>
+        AI Detect
+      </button>
+      <button class="tab" data-tab="tracking">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+        Tracking
+      </button>
+    </div>
+
+    <!-- Document Tab -->
+    <div class="tab-content active" id="tab-document">
+      <div class="document-card">
+        <div class="document-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </div>
+        <div class="document-info">
+          <h3 class="document-title" id="doc-title">My Document</h3>
+          <p class="document-date">Open a Google Doc to view its history</p>
+        </div>
+      </div>
+      <button class="btn-primary" id="btn-load">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        Load Document History
+      </button>
+    </div>
+
+    <!-- Replay Tab -->
+    <div class="tab-content" id="tab-replay">
+      <div class="replay-timeline">
+        <div class="timeline-bar">
+          <div class="timeline-progress" id="timeline-progress"></div>
+          <div class="timeline-thumb" id="timeline-thumb"></div>
+        </div>
+        <div class="timeline-labels">
+          <span id="current-time">0:00</span>
+          <span id="total-time">0:00</span>
+        </div>
+      </div>
+
+      <div class="replay-controls">
+        <button class="btn-control" id="btn-prev" title="Previous">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="19 20 9 12 19 4 19 20"></polygon>
+            <line x1="5" y1="19" x2="5" y2="5"></line>
+          </svg>
+        </button>
+        <button class="btn-control btn-play" id="btn-play" title="Play">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+        </button>
+        <button class="btn-control" id="btn-next" title="Next">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 4 15 12 5 20 5 4"></polygon>
+            <line x1="19" y1="5" x2="19" y2="19"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="speed-control">
+        <label>Speed</label>
+        <div class="speed-buttons">
+          <button class="speed-btn" data-speed="0.5">0.5x</button>
+          <button class="speed-btn active" data-speed="1">1x</button>
+          <button class="speed-btn" data-speed="1.5">1.5x</button>
+          <button class="speed-btn" data-speed="2">2x</button>
+          <button class="speed-btn" data-speed="3">3x</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats Tab -->
+    <div class="tab-content" id="tab-stats">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Word Count</span>
+            <span class="stat-value" id="stat-words">0</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon red">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <line x1="10" y1="11" x2="10" y2="17"></line>
+              <line x1="14" y1="11" x2="14" y2="17"></line>
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Deletes</span>
+            <span class="stat-value" id="stat-deletes">0</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon green">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Time Spent</span>
+            <span class="stat-value" id="stat-time">0h 0m</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon purple">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9"></path>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Edits</span>
+            <span class="stat-value" id="stat-edits">0</span>
+          </div>
+        </div>
+      </div>
+      <button class="btn-primary" id="btn-export-stats">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        Export Statistics
+      </button>
+    </div>
+
+    <!-- Breakdown Tab -->
+    <div class="tab-content" id="tab-breakdown">
+      <div class="breakdown-header">
+        <h3>View Group Breakdown</h3>
+        <p class="breakdown-subtitle">Unique IPs, cameras, referrers, and events</p>
+      </div>
+      
+      <div class="breakdown-filters">
+        <button class="filter-btn active">Unique IPs</button>
+        <button class="filter-btn">Cameras</button>
+        <button class="filter-btn">Referrers</button>
+        <button class="filter-btn">Events</button>
+      </div>
+
+      <div class="breakdown-chart">
+        <canvas id="breakdown-canvas" width="400" height="200"></canvas>
+      </div>
+
+      <div class="breakdown-list" id="breakdown-list">
+        <div class="breakdown-item">
+          <div class="breakdown-color" style="background: #3b82f6;"></div>
+          <div class="breakdown-details">
+            <span class="breakdown-name">192.168.1.1</span>
+            <span class="breakdown-count">45 edits</span>
+          </div>
+          <span class="breakdown-percent">32%</span>
+        </div>
+        <div class="breakdown-item">
+          <div class="breakdown-color" style="background: #60a5fa;"></div>
+          <div class="breakdown-details">
+            <span class="breakdown-name">10.0.0.15</span>
+            <span class="breakdown-count">32 edits</span>
+          </div>
+          <span class="breakdown-percent">23%</span>
+        </div>
+        <div class="breakdown-item">
+          <div class="breakdown-color" style="background: #93c5fd;"></div>
+          <div class="breakdown-details">
+            <span class="breakdown-name">172.16.0.8</span>
+            <span class="breakdown-count">28 edits</span>
+          </div>
+          <span class="breakdown-percent">20%</span>
+        </div>
+        <div class="breakdown-item">
+          <div class="breakdown-color" style="background: #1d4ed8;"></div>
+          <div class="breakdown-details">
+            <span class="breakdown-name">Other</span>
+            <span class="breakdown-count">34 edits</span>
+          </div>
+          <span class="breakdown-percent">25%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Detection Tab -->
+    <div class="tab-content" id="tab-ai-detection">
+      <div class="ai-detection-header">
+        <h3>AI Content Detection</h3>
+        <p class="ai-detection-subtitle">Analyze if content is written by AI or Human</p>
+      </div>
+
+      <button class="btn-primary btn-analyze" id="btn-analyze">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="M21 21l-4.35-4.35"></path>
+        </svg>
+        Analyze Document Content
+      </button>
+
+      <div class="ai-result-container" id="ai-result-container" style="display:none;">
+        <div class="ai-score-circle">
+          <svg viewBox="0 0 120 120" class="score-svg">
+            <circle cx="60" cy="60" r="54" class="score-bg"></circle>
+            <circle cx="60" cy="60" r="54" class="score-ai" id="ai-score-ring"></circle>
+            <circle cx="60" cy="60" r="54" class="score-human" id="human-score-ring"></circle>
+            <text x="60" y="55" class="score-text-main" id="ai-percent-text">0%</text>
+            <text x="60" y="72" class="score-text-label">AI Generated</text>
+          </svg>
+        </div>
+
+        <div class="ai-legend">
+          <div class="legend-item">
+            <div class="legend-dot ai"></div>
+            <span class="legend-label">AI Generated</span>
+            <span class="legend-value" id="ai-legend-value">0%</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-dot human"></div>
+            <span class="legend-label">Human Written</span>
+            <span class="legend-value" id="human-legend-value">0%</span>
+          </div>
+        </div>
+
+        <div class="ai-verdict" id="ai-verdict">
+          <div class="verdict-icon" id="verdict-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+          </div>
+          <div class="verdict-text">
+            <span class="verdict-label" id="verdict-label">Analyzing...</span>
+            <span class="verdict-desc" id="verdict-desc">Checking content patterns...</span>
+          </div>
+        </div>
+
+        <div class="ai-details">
+          <h4>Detection Indicators</h4>
+          <div class="indicator-list" id="indicator-list">
+            <div class="indicator-item">
+              <span class="indicator-name">Vocabulary Consistency</span>
+              <div class="indicator-bar">
+                <div class="indicator-fill ai-fill" id="ind-vocab" style="width: 0%"></div>
+              </div>
+              <span class="indicator-val" id="ind-vocab-val">-</span>
+            </div>
+            <div class="indicator-item">
+              <span class="indicator-name">Sentence Structure</span>
+              <div class="indicator-bar">
+                <div class="indicator-fill ai-fill" id="ind-sentence" style="width: 0%"></div>
+              </div>
+              <span class="indicator-val" id="ind-sentence-val">-</span>
+            </div>
+            <div class="indicator-item">
+              <span class="indicator-name">Repetition Pattern</span>
+              <div class="indicator-bar">
+                <div class="indicator-fill ai-fill" id="ind-repetition" style="width: 0%"></div>
+              </div>
+              <span class="indicator-val" id="ind-repetition-val">-</span>
+            </div>
+            <div class="indicator-item">
+              <span class="indicator-name">Natural Variation</span>
+              <div class="indicator-bar">
+                <div class="indicator-fill human-fill" id="ind-natural" style="width: 0%"></div>
+              </div>
+              <span class="indicator-val" id="ind-natural-val">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ai-loading" id="ai-loading" style="display:none;">
+        <div class="loading-spinner"></div>
+        <span>Analyzing content...</span>
+      </div>
+    </div>
+
+    <!-- Real-time Tracking Tab -->
+    <div class="tab-content" id="tab-tracking">
+      <div class="tracking-header">
+        <h3>Real-time Tracking</h3>
+        <p class="tracking-subtitle">Monitor character count and editing duration</p>
+      </div>
+
+      <div class="tracking-status" id="tracking-status">
+        <div class="status-indicator active">
+          <div class="status-dot pulse"></div>
+          <span class="status-text">Tracking Active</span>
+        </div>
+        <button class="btn-toggle" id="btn-toggle-tracking">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="1" y="5" width="22" height="14" rx="7"></rect>
+            <circle cx="16" cy="12" r="3"></circle>
+          </svg>
+        </button>
+      </div>
+
+      <div class="tracking-summary">
+        <div class="tracking-stat">
+          <div class="tracking-stat-icon blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </div>
+          <div class="tracking-stat-info">
+            <span class="tracking-stat-label">Characters Typed</span>
+            <span class="tracking-stat-value" id="track-chars">0</span>
+          </div>
+        </div>
+        <div class="tracking-stat">
+          <div class="tracking-stat-icon green">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
+          <div class="tracking-stat-info">
+            <span class="tracking-stat-label">Editing Duration</span>
+            <span class="tracking-stat-value" id="track-duration">00:00:00</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="tracking-chart-container">
+        <div class="tracking-chart-header">
+          <h4>Typing Activity</h4>
+          <span class="tracking-chart-period">Last 5 minutes</span>
+        </div>
+        <div class="tracking-chart">
+          <canvas id="tracking-canvas" width="400" height="150"></canvas>
+        </div>
+      </div>
+
+      <div class="tracking-sessions">
+        <div class="tracking-sessions-header">
+          <h4>Editing Sessions</h4>
+          <span class="tracking-sessions-count" id="track-sessions">0 sessions</span>
+        </div>
+        <div class="tracking-session-list" id="track-session-list">
+          <div class="tracking-session-item">
+            <div class="session-avatar" style="background: #3b82f6;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="white">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </div>
+            <div class="session-info">
+              <span class="session-name">You</span>
+              <span class="session-details">0 chars • 0m 0s</span>
+            </div>
+            <div class="session-status active">
+              <div class="session-dot"></div>
+              Active
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-primary" id="btn-export-tracking">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        Export Tracking Data
+      </button>
+    </div>
+
+    <footer class="footer">
+      <span>Powered by ❤️</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+#gdocs-replay-btn {
+  display: inline-block;
+}
+
+.gdocs-replay-notification {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 99999;
+}
+
+.gdocs-replay-btn:hover {
+  opacity: 0.9;
+}
+
+.gdocs-replay-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(30, 64, 175, 0.1);
+  pointer-events: none;
+  z-index: 99998;
+  transition: opacity 0.3s;
+}
