@@ -463,16 +463,21 @@
         clearInterval(wait);
         capture();
         state._interval = setInterval(capture, 2000);
+        if (reader.diagnose) {
+          console.log('[Verifie] Ready. Diagnostics:', reader.diagnose());
+        }
       } else if (tries > 60) {
         clearInterval(wait);
-        // Panel still shows, just without content yet
+        if (reader && reader.diagnose) {
+          console.warn('[Verifie] Content not detected after 30s. Diagnostics:', reader.diagnose());
+        }
       }
     }, 500);
 
     // Session timer
     setInterval(tickSession, 1000);
 
-    console.log('[Verifie] Panel ready');
+    console.log('[Verifie] Panel injected');
   }
 
   if (document.body) {

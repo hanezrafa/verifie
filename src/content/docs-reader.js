@@ -141,6 +141,25 @@
     isReady() {
       return !!this.getContentElement();
     }
+
+    /**
+     * Diagnostic info — helps debug when detection fails
+     */
+    diagnose() {
+      const counts = {
+        lineview: document.querySelectorAll('.kix-lineview').length,
+        paragraph: document.querySelectorAll('.kix-paragraphrenderer').length,
+        pageContent: document.querySelectorAll('.kix-page-content-wrapper').length,
+        page: document.querySelectorAll('.kix-page').length,
+        editor: document.querySelectorAll('.kix-appview-editor').length,
+        editorContainer: document.querySelectorAll('.docs-editor-container').length,
+        roleDocument: document.querySelectorAll('[role="document"]').length,
+        lineviewAny: document.querySelectorAll('[class*="lineview"]').length,
+        frames: window.frames.length
+      };
+      const text = this.getText();
+      return { counts, textLength: text.length, textPreview: text.slice(0, 80) };
+    }
   }
 
   global.GoogleDocsReader = GoogleDocsReader;
