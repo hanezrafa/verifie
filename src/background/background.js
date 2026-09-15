@@ -1,63 +1,74 @@
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'updateBadge') {
-    chrome.action.setBadgeText({
-      text: message.count,
-      tabId: sender.tab?.id
-    });
-    chrome.action.setBadgeBackgroundColor({
-      color: '#3b82f6',
-      tabId: sender.tab?.id
-    });
-  }
+// Verifie - Background Service Worker (MV3)
 
-  if (message.action === 'trackingUpdate' && sender.tab) {
-    // Persist tracking stats
-    chrome.storage.local.get(['trackingData'], (result) => {
-      const existing = result.trackingData || {};
-      chrome.storage.local.set({
-        trackingData: {
-          ...existing,
-          charCount: message.stats.charsTyped,
-          deletes: message.stats.charsDeleted,
-          keystrokes: message.stats.keystrokes,
-          lastUpdate: Date.now(),
-          active: message.stats.active
-        }
-      });
-    });
-  }
-
-  return true;
-});
-
+// Ensure the periodic alarm exists (idempotent)
 chrome.runtime.onInstalled.addListener((details) => {
-  console.log('Verifie extension installed:', details.reason);
+  console.log('Verifie installed:', details.reason);
+
+  chrome.alarms.create('verifie-cleanup', { periodInMinutes: 60 });
 
   if (details.reason === 'install') {
-    // Open welcome/dashboard on first install
+    // Open the dashboard on first install
     chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/index.html') });
   }
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url && tab.url.includes('docs.google.com/document')) {
-    chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['src/shared/config.js', 'src/shared/editing-tracker.js', 'src/content/content.js']
-    }).catch((err) => {
-      console.warn('Script injection skipped:', err.message);
-    });
-  }
+// Also create the alarm on startup (service workers are ephemeral)
+chrome.runtime.onStartup.addListener(() => {
+  chrome.alarms.create('verifie-cleanup', { periodInMinutes: 60 });
 });
 
 // Periodic cleanup of old sessions (keep last 50)
-chrome.alarms?.create('cleanup', { periodInMinutes: 60 });
-chrome.alarms?.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'cleanup') {
-    chrome.storage.local.get(['sessions'], (result) => {
-      if (result.sessions && result.sessions.length > 50) {
-        chrome.storage.local.set({ sessions: result.sessions.slice(-50) });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== 'verifie-cleanup') return;
+  chrome.storage.local.get(['sessions'], (result) => {
+    if (result.sessions && result.sessions.length > 50) {
+      chrome.storage.local.set({ sessions: result.sessions.slice(-50) });
+    }
+  });
+});
+
+// Message handling from popup / content script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  switch (message.action) {
+    case 'updateBadge': {
+      const tabId = sender.tab?.id;
+      if (typeof tabId === 'number') {
+        chrome.action.setBadgeText({ text: String(message.count ?? ''), tabId });
+        chrome.action.setBadgeBackgroundColor({ color: '#3b82f6', tabId });
       }
-    });
+      sendResponse({ ok: true });
+      break;
+    }
+
+    case 'trackingUpdate': {
+      if (sender.tab) {
+        chrome.storage.local.get(['trackingData'], (result) => {
+          const existing = result.trackingData || {};
+          chrome.storage.local.set({
+            trackingData: {
+              ...existing,
+              charCount: message.stats?.charsTyped ?? existing.charCount ?? 0,
+              deletes: message.stats?.charsDeleted ?? existing.deletes ?? 0,
+              keystrokes: message.stats?.keystrokes ?? existing.keystrokes ?? 0,
+              lastUpdate: Date.now(),
+              active: message.stats?.active ?? existing.active ?? true
+            }
+          });
+        });
+      }
+      sendResponse({ ok: true });
+      break;
+    }
+
+    case 'openDashboard': {
+      chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/index.html') });
+      sendResponse({ ok: true });
+      break;
+    }
+
+    default:
+      sendResponse({ ok: false, reason: 'unknown-action' });
   }
+
+  return true; // keep channel open for async responses
 });
