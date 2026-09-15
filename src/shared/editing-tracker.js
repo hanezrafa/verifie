@@ -1,8 +1,12 @@
 /**
  * Advanced Editing Tracker
  * Tracks keystrokes, velocity, sessions, and patterns
- * Works with Google Docs' contenteditable structure
+ * Idempotent — safe to load multiple times.
  */
+(function (global) {
+  'use strict';
+
+  if (global.EditingTracker) return; // already loaded
 
 class EditingTracker {
   constructor(options = {}) {
@@ -243,4 +247,9 @@ class EditingTracker {
   }
 }
 
-window.EditingTracker = EditingTracker;
+  global.EditingTracker = EditingTracker;
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { EditingTracker };
+  }
+})(typeof window !== 'undefined' ? window : self);

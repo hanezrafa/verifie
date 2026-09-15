@@ -1,7 +1,33 @@
 (() => {
   'use strict';
 
-  const reader = new GoogleDocsReader();
+  // Guard against double injection (manifest + programmatic, or extension reload)
+  if (window.__verifieLoaded) {
+    console.log('[Verifie] Already loaded, skipping re-init');
+    return;
+  }
+  window.__verifieLoaded = true;
+
+  // Ensure dependencies are available
+  if (typeof window.GoogleDocsReader === 'undefined') {
+    console.warn('[Verifie] GoogleDocsReader not loaded');
+    window.__verifieLoaded = false;
+    return;
+  }
+
+  const reader = new window.GoogleDocsReader();
+
+  // Safe wrapper for chrome API calls that may fail after extension reload
+  function safeChrome(fn, fallback) {
+    try {
+      return fn();
+    } catch (e) {
+      if (e && e.message && e.message.includes('Extension context invalidated')) {
+        console.warn('[Verifie] Extension context invalidated — please reload the page');
+      }
+      return fallback;
+    }
+  }
 
   // === Document Replay State ===
   const replay = {
@@ -98,8 +124,7 @@
       // Sync latest snapshot immediately before opening dashboard
       const snapshot = reader.getSnapshot();
       persistSnapshot(snapshot);
-      const dashUrl = chrome.runtime.getURL('dashboard/index.html');
-      window.open(dashUrl, '_blank');
+      openDashboardTab();
     });
 
     container.appendChild(counter);
@@ -156,71 +181,75 @@
   function persistSnapshot(snapshot) {
     const docId = snapshot.documentId;
     if (!docId) return;
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
 
-    chrome.storage.local.get(
-      ['documents', 'revisions', 'trackingData', 'analyses'],
-      (result) => {
-        const now = Date.now();
-        const documents = result.documents || [];
-        const revisions = result.revisions || [];
+    safeChrome(() => {
+      chrome.storage.local.get(
+        ['documents', 'revisions', 'trackingData'],
+        (result) => {
+          if (!result) return;
+          const now = Date.now();
+          const documents = result.documents || [];
+          const revisions = result.revisions || [];
 
-        // Upsert document record
-        let doc = documents.find(d => d.google_doc_id === docId);
-        const docRecord = {
-          google_doc_id: docId,
-          title: snapshot.title,
-          url: snapshot.url,
-          wordCount: snapshot.wordCount,
-          charCount: snapshot.charCount,
-          charCountNoSpaces: snapshot.charCountNoSpaces,
-          paragraphCount: snapshot.paragraphCount,
-          sentenceCount: snapshot.sentenceCount,
-          readingTimeMinutes: snapshot.readingTimeMinutes,
-          lastModified: new Date(now).toISOString(),
-          firstSeen: doc ? doc.firstSeen : new Date(now).toISOString()
-        };
-
-        if (doc) {
-          Object.assign(doc, docRecord);
-        } else {
-          documents.push({ id: docId, ...docRecord });
-        }
-
-        // Append revision (cap at 500 to stay under quota)
-        revisions.push({
-          document_id: docId,
-          timestamp: new Date(now).toISOString(),
-          wordCount: snapshot.wordCount,
-          charCount: snapshot.charCount,
-          delta: snapshot.delta || 0,
-          hash: snapshot.hash
-        });
-        while (revisions.length > 500) revisions.shift();
-
-        // Update aggregate tracking data
-        const tracking = result.trackingData || {};
-        const sessionStart = tracking.sessionStart || now;
-        const totalChars = documents.reduce((s, d) => s + (d.charCount || 0), 0);
-
-        const trackingData = {
-          ...tracking,
-          active: sync.trackingActive,
-          charCount: totalChars,
-          keystrokes: tracking.keystrokes || 0,
-          sessionStart,
-          sessionDuration: now - sessionStart,
-          lastUpdate: now,
-          currentDoc: {
-            id: docId,
+          // Upsert document record
+          const doc = documents.find(d => d.google_doc_id === docId);
+          const docRecord = {
+            google_doc_id: docId,
             title: snapshot.title,
+            url: snapshot.url,
             wordCount: snapshot.wordCount,
-            charCount: snapshot.charCount
-          }
-        };
+            charCount: snapshot.charCount,
+            charCountNoSpaces: snapshot.charCountNoSpaces,
+            paragraphCount: snapshot.paragraphCount,
+            sentenceCount: snapshot.sentenceCount,
+            readingTimeMinutes: snapshot.readingTimeMinutes,
+            lastModified: new Date(now).toISOString(),
+            firstSeen: doc ? doc.firstSeen : new Date(now).toISOString()
+          };
 
-        chrome.storage.local.set({ documents, revisions, trackingData });
-      }
-    );
+          if (doc) {
+            Object.assign(doc, docRecord);
+          } else {
+            documents.push({ id: docId, ...docRecord });
+          }
+
+          // Append revision (cap at 500 to stay under quota)
+          revisions.push({
+            document_id: docId,
+            timestamp: new Date(now).toISOString(),
+            wordCount: snapshot.wordCount,
+            charCount: snapshot.charCount,
+            delta: snapshot.delta || 0,
+            hash: snapshot.hash
+          });
+          while (revisions.length > 500) revisions.shift();
+
+          // Update aggregate tracking data
+          const tracking = result.trackingData || {};
+          const sessionStart = tracking.sessionStart || now;
+          const totalChars = documents.reduce((s, d) => s + (d.charCount || 0), 0);
+
+          const trackingData = {
+            ...tracking,
+            active: sync.trackingActive,
+            charCount: totalChars,
+            keystrokes: tracking.keystrokes || 0,
+            sessionStart,
+            sessionDuration: now - sessionStart,
+            lastUpdate: now,
+            currentDoc: {
+              id: docId,
+              title: snapshot.title,
+              wordCount: snapshot.wordCount,
+              charCount: snapshot.charCount
+            }
+          };
+
+          chrome.storage.local.set({ documents, revisions, trackingData });
+        }
+      );
+    });
   }
 
   function updateLiveUI(snapshot) {
@@ -237,46 +266,64 @@
   setInterval(() => {
     const timeEl = document.getElementById('verifie-live-time');
     if (!timeEl) return;
-    chrome.storage.local.get(['trackingData'], (result) => {
-      const start = result.trackingData?.sessionStart || Date.now();
-      const elapsed = Math.floor((Date.now() - start) / 1000);
-      const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
-      const s = (elapsed % 60).toString().padStart(2, '0');
-      timeEl.textContent = `${m}:${s}`;
+    safeChrome(() => {
+      chrome.storage.local.get(['trackingData'], (result) => {
+        const start = (result && result.trackingData && result.trackingData.sessionStart) || Date.now();
+        const elapsed = Math.floor((Date.now() - start) / 1000);
+        const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+        const s = (elapsed % 60).toString().padStart(2, '0');
+        timeEl.textContent = `${m}:${s}`;
+      });
     });
   }, 1000);
 
+  function openDashboardTab() {
+    safeChrome(() => {
+      const dashUrl = chrome.runtime.getURL('dashboard/index.html');
+      window.open(dashUrl, '_blank');
+    }, () => {
+      window.open('https://hanezrafa.github.io/verifie/dashboard/', '_blank');
+    });
+  }
+
   function notifyPopup(snapshot) {
-    chrome.runtime.sendMessage({
-      action: 'liveUpdate',
-      snapshot: {
-        title: snapshot.title,
-        wordCount: snapshot.wordCount,
-        charCount: snapshot.charCount,
-        documentId: snapshot.documentId,
-        lastModified: new Date().toISOString()
-      }
-    }).catch(() => {});
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
+    safeChrome(() => {
+      const p = chrome.runtime.sendMessage({
+        action: 'liveUpdate',
+        snapshot: {
+          title: snapshot.title,
+          wordCount: snapshot.wordCount,
+          charCount: snapshot.charCount,
+          documentId: snapshot.documentId,
+          lastModified: new Date().toISOString()
+        }
+      });
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    });
   }
 
   // === Optional advanced tracker (keystrokes/velocity) ===
   function setupTrackersIfAvailable() {
-    if (typeof EditingTracker === 'undefined') return;
+    if (typeof window.EditingTracker === 'undefined') return;
 
-    window.verifieTracker = new EditingTracker({
+    window.verifieTracker = new window.EditingTracker({
       interval: 2000,
       onUpdate: (stats) => {
-        chrome.storage.local.get(['trackingData'], (result) => {
-          chrome.storage.local.set({
-            trackingData: {
-              ...(result.trackingData || {}),
-              keystrokes: stats.keystrokes,
-              charsTyped: stats.charsTyped,
-              charsDeleted: stats.charsDeleted,
-              velocity: stats.velocity,
-              isIdle: stats.isIdle,
-              active: stats.active
-            }
+        if (typeof chrome === 'undefined' || !chrome.storage) return;
+        safeChrome(() => {
+          chrome.storage.local.get(['trackingData'], (result) => {
+            chrome.storage.local.set({
+              trackingData: {
+                ...((result && result.trackingData) || {}),
+                keystrokes: stats.keystrokes,
+                charsTyped: stats.charsTyped,
+                charsDeleted: stats.charsDeleted,
+                velocity: stats.velocity,
+                isIdle: stats.isIdle,
+                active: stats.active
+              }
+            });
           });
         });
       }
@@ -284,11 +331,14 @@
   }
 
   function loadTrackingState() {
-    chrome.storage.local.get(['trackingData'], (result) => {
-      if (result.trackingData && result.trackingData.active === false) {
-        sync.trackingActive = false;
-        if (window.verifieTracker) window.verifieTracker.pause();
-      }
+    if (typeof chrome === 'undefined' || !chrome.storage) return;
+    safeChrome(() => {
+      chrome.storage.local.get(['trackingData'], (result) => {
+        if (result && result.trackingData && result.trackingData.active === false) {
+          sync.trackingActive = false;
+          if (window.verifieTracker) window.verifieTracker.pause();
+        }
+      });
     });
   }
 
@@ -335,8 +385,7 @@
         case 'openDashboard': {
           const snapshot = reader.getSnapshot();
           persistSnapshot(snapshot);
-          const dashUrl = chrome.runtime.getURL('dashboard/index.html');
-          window.open(dashUrl, '_blank');
+          openDashboardTab();
           sendResponse({ success: true });
           break;
         }
@@ -402,20 +451,23 @@
 
   // Save session on unload
   window.addEventListener('beforeunload', () => {
-    chrome.storage.local.get(['sessions', 'trackingData'], (result) => {
-      const sessions = result.sessions || [];
-      const t = result.trackingData || {};
-      if (t.sessionStart) {
-        sessions.push({
-          id: Date.now(),
-          documentTitle: reader.getTitle(),
-          startTime: t.sessionStart,
-          endTime: Date.now(),
-          duration: Date.now() - t.sessionStart,
-          charCount: t.charCount || 0
-        });
-        chrome.storage.local.set({ sessions: sessions.slice(-50) });
-      }
+    if (typeof chrome === 'undefined' || !chrome.storage) return;
+    safeChrome(() => {
+      chrome.storage.local.get(['sessions', 'trackingData'], (result) => {
+        const sessions = result.sessions || [];
+        const t = result.trackingData || {};
+        if (t.sessionStart) {
+          sessions.push({
+            id: Date.now(),
+            documentTitle: reader.getTitle(),
+            startTime: t.sessionStart,
+            endTime: Date.now(),
+            duration: Date.now() - t.sessionStart,
+            charCount: t.charCount || 0
+          });
+          chrome.storage.local.set({ sessions: sessions.slice(-50) });
+        }
+      });
     });
   });
 
