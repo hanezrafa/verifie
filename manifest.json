@@ -32,11 +32,14 @@
         "src/shared/config.js",
         "src/shared/ai-detection.js",
         "src/content/docs-reader.js",
+        "src/content/docs-fetcher.js",
         "src/shared/editing-tracker.js",
         "src/content/content.js"
       ],
       "css": ["src/content/content.css"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ],
   "background": {

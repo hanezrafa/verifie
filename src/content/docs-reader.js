@@ -72,22 +72,56 @@
 
     // ---------------------------------------------------------------
     // Read text from the editor iframe (same-origin)
+    // Filters out Google internal frames that contain code, not content
     // ---------------------------------------------------------------
     getIframeText() {
       const iframes = Array.from(document.querySelectorAll('iframe'));
       for (const frame of iframes) {
         try {
           const doc = frame.contentDocument;
-          if (!doc) continue;
-          const body = doc.body;
-          if (!body) continue;
-          const text = (body.innerText || body.textContent || '').trim();
-          if (text.length > 0) return text;
+          if (!doc || !doc.body) continue;
+
+          const text = (doc.body.innerText || doc.body.textContent || '').trim();
+          if (text.length === 0) continue;
+
+          // Skip Google internal frames (they contain JS config, not document text)
+          if (this.looksLikeCode(text)) continue;
+          // Skip the tiny event-target frame (no visible text)
+          if (frame.id === 'docs-texteventtarget-iframe') continue;
+
+          return text;
         } catch (e) {
           // cross-origin — skip
         }
       }
       return '';
+    }
+
+    /**
+     * Heuristic: does this text look like JS config rather than prose?
+     */
+    looksLikeCode(text) {
+      const codeMarkers = [
+        'WIZ_global_data',
+        '_docs_flag_initialData',
+        'window.',
+        'function(',
+        '{"',
+        '</script',
+        'AF_initDataCallback',
+        'google.script'
+      ];
+      const head = text.slice(0, 500);
+      return codeMarkers.some(m => head.includes(m));
+    }
+
+    /**
+     * Detect canvas-based rendering (text NOT in DOM)
+     */
+    usesCanvasRendering() {
+      const canvases = document.querySelectorAll('.kix-canvas-tile-content canvas, .kix-canvas-tile-content, canvas');
+      const lineViews = document.querySelectorAll('.kix-lineview, .kix-paragraphrenderer');
+      return canvases.length > 0 && lineViews.length === 0;
     }
 
     // ---------------------------------------------------------------
@@ -133,12 +167,14 @@
     }
 
     getBodyEditorText() {
-      // Look for any element that looks like the editor region
       const region = document.querySelector('.docs-editor') ||
                      document.querySelector('#docs-editor-container') ||
                      document.querySelector('.kix-appview');
       if (!region) return '';
-      return (region.innerText || '').trim();
+      const t = (region.innerText || '').trim();
+      // Skip if it looks like leftover config code
+      if (this.looksLikeCode(t)) return '';
+      return t;
     }
 
     normalize(text) {
@@ -202,7 +238,13 @@
         canvases: document.querySelectorAll('canvas').length
       };
       const text = this.getText();
-      return { strategies, counts, textLength: text.length, textPreview: text.slice(0, 80) };
+      return {
+        strategies,
+        counts,
+        usesCanvas: this.usesCanvasRendering(),
+        textLength: text.length,
+        textPreview: text.slice(0, 80)
+      };
     }
   }
 

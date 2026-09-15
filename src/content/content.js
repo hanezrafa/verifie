@@ -1,11 +1,17 @@
 (() => {
   'use strict';
 
-  // Prevent double injection
+  const IS_TOP = window.top === window;
+
+  // Each frame gets its own script instance; only the top frame shows the panel.
+  // Keystroke tracking runs in every frame so we catch typing in the docs iframe.
   if (window.__verifieLoaded) return;
   window.__verifieLoaded = true;
 
   const reader = window.GoogleDocsReader ? new window.GoogleDocsReader() : null;
+  const fetcher = window.GoogleDocsTextFetcher || null;
+  let fetchedText = '';
+  let fetchFailReason = '';
   const state = {
     lastHash: '',
     lastSnapshot: null,
@@ -21,48 +27,103 @@
 
   // ============================================================
   // KEYSTROKE TRACKING (primary — works regardless of rendering)
+  // Runs in EVERY frame; writes to chrome.storage so the top-frame
+  // panel and the dashboard both see the live counts.
   // ============================================================
+  let keySaveTimer = null;
+
   function setupKeystrokeTracking() {
-    // Capture keystrokes in the top frame AND the docs iframe
-    const targets = [document];
-    document.querySelectorAll('iframe').forEach(f => {
-      try { if (f.contentDocument) targets.push(f.contentDocument); } catch (e) {}
-    });
+    const doc = document;
+    if (doc.__verifieKeysBound) return;
+    doc.__verifieKeysBound = true;
 
-    targets.forEach(doc => {
-      doc.addEventListener('keydown', (e) => {
-        if (!state.active) return;
-        if (e.ctrlKey || e.metaKey || e.altKey) return; // ignore shortcuts
+    doc.addEventListener('keydown', (e) => {
+      if (!state.active) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-        if (e.key === 'Backspace' || e.key === 'Delete') {
-          state.deletedChars++;
-        } else if (e.key.length === 1) {
-          state.typedChars++;
-        }
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        state.deletedChars++;
+      } else if (e.key.length === 1) {
+        state.typedChars++;
+      } else {
+        return; // ignore arrows, shift, etc.
+      }
+      state.keystrokes++;
+      scheduleKeySave();
+      if (IS_TOP) updatePanelFromKeystrokes();
+    }, true);
+
+    doc.addEventListener('paste', (e) => {
+      if (!state.active) return;
+      const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+      if (text.length > 0) {
+        state.typedChars += text.length;
         state.keystrokes++;
-        updatePanelFromKeystrokes();
-      }, true);
+        scheduleKeySave();
+        if (IS_TOP) updatePanelFromKeystrokes();
+      }
+    }, true);
+  }
 
-      doc.addEventListener('paste', (e) => {
-        if (!state.active) return;
-        const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
-        if (text.length > 0) {
-          state.typedChars += text.length;
-          updatePanelFromKeystrokes();
-        }
-      }, true);
+  /**
+   * Merge this frame's keystroke deltas into the shared total in storage.
+   */
+  function scheduleKeySave() {
+    if (keySaveTimer) return;
+    keySaveTimer = setTimeout(() => {
+      keySaveTimer = null;
+      flushKeystrokes();
+    }, 1500);
+  }
+
+  function flushKeystrokes() {
+    const dTyped = state.typedChars - (state._flushedTyped || 0);
+    const dDeleted = state.deletedChars - (state._flushedDeleted || 0);
+    const dKeys = state.keystrokes - (state._flushedKeys || 0);
+    if (dTyped === 0 && dDeleted === 0 && dKeys === 0) return;
+
+    state._flushedTyped = state.typedChars;
+    state._flushedDeleted = state.deletedChars;
+    state._flushedKeys = state.keystrokes;
+
+    safeChrome(() => {
+      chrome.storage.local.get(['trackingData'], (result) => {
+        const t = result.trackingData || {};
+        const typed = (t.typedChars || 0) + dTyped;
+        const deleted = (t.deletedChars || 0) + dDeleted;
+        const keys = (t.keystrokes || 0) + dKeys;
+        const net = Math.max(0, typed - deleted);
+        chrome.storage.local.set({
+          trackingData: {
+            ...t,
+            typedChars: typed,
+            deletedChars: deleted,
+            keystrokes: keys,
+            keystrokeCharCount: net,
+            active: state.active,
+            sessionStart: t.sessionStart || Date.now(),
+            lastUpdate: Date.now()
+          }
+        });
+      });
     });
   }
 
   function updatePanelFromKeystrokes() {
-    // If text extraction is failing, show keystroke-derived numbers
+    // If text extraction is working, leave panel to snapshot logic
     const extracted = state.lastSnapshot && state.lastSnapshot.text ? state.lastSnapshot.text.length : 0;
-    if (extracted > 0) return; // real text available — leave panel to snapshot
+    if (extracted > 0) return;
 
-    const net = Math.max(0, state.typedChars - state.deletedChars);
-    setText('v-chars', formatNumber(net));
-    setText('v-words', formatNumber(Math.round(net / 5))); // ~5 chars per word
-    setText('v-paras', formatNumber(state.keystrokes > 0 ? 1 : 0));
+    // Read shared keystroke totals from storage
+    safeChrome(() => {
+      chrome.storage.local.get(['trackingData'], (result) => {
+        const t = (result && result.trackingData) || {};
+        const net = t.keystrokeCharCount || 0;
+        setText('v-chars', formatNumber(net));
+        setText('v-words', formatNumber(Math.round(net / 5)));
+        setText('v-paras', formatNumber(t.keystrokes > 0 ? 1 : 0));
+      });
+    });
   }
 
   // ============================================================
@@ -234,19 +295,34 @@
   // ============================================================
   function runAnalysis() {
     if (!reader) return;
-    const text = reader.getText();
-    if (!text || text.length < 20) {
-      flashButton('v-analyze', 'Too short', true);
+    let text = reader.getText();
+    if (!text || text.trim().length < 20) text = fetchedText;
+    if (!text || text.trim().length < 20) {
+      // Last resort: try a fresh export fetch
+      if (fetcher) {
+        fetcher.fetch(true).then((res) => {
+          if (res.ok && res.text && res.text.trim().length >= 20) {
+            fetchedText = res.text;
+            doAnalysis(res.text);
+          } else {
+            flashButton('v-analyze', 'No text yet', true);
+          }
+        });
+      } else {
+        flashButton('v-analyze', 'No text yet', true);
+      }
       return;
     }
+    doAnalysis(text);
+  }
 
+  function doAnalysis(text) {
     const btn = document.getElementById('v-analyze');
-    btn.innerHTML = '<span class="verifie-spinner"></span> Analyzing...';
+    if (btn) btn.innerHTML = '<span class="verifie-spinner"></span> Analyzing...';
 
     setTimeout(async () => {
       let result = null;
 
-      // Try shared service first (remote with local fallback)
       if (window.AIDetectionService) {
         try {
           const endpoints = window.VerifieSettings ? await window.VerifieSettings.getEndpoints() : {};
@@ -260,10 +336,8 @@
       if (!result) result = localAnalyze(text);
 
       applyAiResult(result);
-
-      // Persist for dashboard
       persistAnalysis(result, text);
-    }, 500);
+    }, 400);
   }
 
   function localAnalyze(text) {
@@ -362,14 +436,18 @@
   // ============================================================
   function capture() {
     if (!reader || !state.active) return;
-    const snapshot = reader.getSnapshot();
-    if (!snapshot) return;
+
+    const domText = reader.getText();
+    const hasDomText = domText && domText.trim().length > 0;
+
+    // If DOM has no text (canvas rendering), use the fetched export text
+    let text = hasDomText ? domText : fetchedText;
+    const snapshot = buildSnapshot(text);
 
     state.lastSnapshot = snapshot;
     updatePanel(snapshot);
     updateStatus(snapshot);
 
-    // Persist if text changed OR keystrokes changed
     const textChanged = snapshot.hash !== state.lastHash;
     const keyChanged = state._lastKeystrokes !== state.keystrokes;
     if (!textChanged && !keyChanged) return;
@@ -381,23 +459,77 @@
     persist(snapshot);
   }
 
+  /**
+   * Build a snapshot object from raw text (works with either source).
+   */
+  function buildSnapshot(text) {
+    text = (text || '').replace(/\u00A0/g, ' ').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    const words = text.split(/\s+/).filter(w => w.length > 0);
+    const lines = text.split('\n').filter(l => l.trim().length > 0);
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      hash = ((hash << 5) - hash) + text.charCodeAt(i);
+      hash = hash & hash;
+    }
+    return {
+      text,
+      title: reader ? reader.getTitle() : document.title,
+      documentId: reader ? reader.getDocumentId() : null,
+      url: window.location.href,
+      wordCount: words.length,
+      charCount: text.length,
+      paragraphCount: lines.length,
+      sentenceCount: text.split(/[.!?]+/).filter(s => s.trim()).length,
+      readingTimeMinutes: Math.max(1, Math.ceil(words.length / 200)),
+      timestamp: Date.now(),
+      hash: hash.toString(36),
+      source: 'dom-or-export'
+    };
+  }
+
+  /**
+   * Periodically pull the real text via the export endpoint.
+   */
+  async function refreshFetchedText() {
+    if (!fetcher) return;
+    const res = await fetcher.fetch();
+    if (res.ok && res.text) {
+      fetchedText = res.text;
+      fetchFailReason = '';
+    } else if (res.error) {
+      fetchFailReason = res.error;
+    }
+  }
+
   function updateStatus(snapshot) {
     const dot = document.getElementById('v-status-dot');
     const txt = document.getElementById('v-status-text');
     if (!dot || !txt) return;
 
     const extracted = snapshot && snapshot.text ? snapshot.text.length : 0;
-    const net = Math.max(0, state.typedChars - state.deletedChars);
 
     if (extracted > 0) {
       dot.className = 'verifie-status-dot ok';
       txt.textContent = `Live • ${snapshot.wordCount} words • ${formatNumber(snapshot.charCount)} chars`;
-    } else if (state.keystrokes > 0) {
+    } else if (fetchedText) {
       dot.className = 'verifie-status-dot ok';
-      txt.textContent = `Live (keystrokes) • ~${formatNumber(net)} chars • ${state.keystrokes} keys`;
+      txt.textContent = `Live (export) • ${formatNumber(fetchedText.length)} chars`;
     } else {
-      dot.className = 'verifie-status-dot warn';
-      txt.textContent = 'Start typing to begin tracking…';
+      safeChrome(() => {
+        chrome.storage.local.get(['trackingData'], (r) => {
+          const t = (r && r.trackingData) || {};
+          const net = t.keystrokeCharCount || 0;
+          if (net > 0 || t.keystrokes > 0) {
+            dot.className = 'verifie-status-dot ok';
+            txt.textContent = `Live (keystrokes) • ~${formatNumber(net)} chars`;
+          } else {
+            dot.className = 'verifie-status-dot warn';
+            txt.textContent = fetchFailReason
+              ? `Reading via export failed (${fetchFailReason}). Type to track keystrokes…`
+              : 'Start typing to begin tracking…';
+          }
+        });
+      });
     }
   }
 
@@ -552,35 +684,43 @@
   // INIT
   // ============================================================
   function start() {
+    // Keystroke tracking runs in EVERY frame
+    setupKeystrokeTracking();
+    setInterval(setupKeystrokeTracking, 8000);
+
+    // Only the TOP frame shows the panel + reads content
+    if (!IS_TOP) {
+      console.log('[Verifie] Keystroke listener active (frame)');
+      return;
+    }
+
     createPanel();
     setupMessages();
-    setupKeystrokeTracking();
 
-    // Refresh iframe listeners periodically (Docs may add iframes later)
-    setInterval(setupKeystrokeTracking, 10000);
+    // Pull real text via export endpoint (works with canvas rendering)
+    refreshFetchedText();
+    setInterval(refreshFetchedText, 5000);
 
-    // Poll for content; also works with keystroke fallback
     let tries = 0;
     state._interval = setInterval(() => {
       tries++;
-      if (reader && reader.isReady()) {
-        capture();
-      }
+      if (reader && reader.isReady()) capture();
       if (tries === 5 && reader && reader.diagnose) {
-        console.log('[Verifie] Diagnostics:', reader.diagnose());
+        const d = reader.diagnose();
+        console.log('[Verifie] Diagnostics:', JSON.stringify(d));
       }
     }, 2000);
 
-    // Always refresh panel from keystrokes as backup
+    // Refresh panel from keystrokes (fallback) every second
     setInterval(() => {
+      if (state.lastSnapshot) {
+        updatePanel(state.lastSnapshot);
+        updateStatus(state.lastSnapshot);
+      }
       updatePanelFromKeystrokes();
-      if (state.lastSnapshot) updateStatus(state.lastSnapshot);
-      else updateStatus(null);
     }, 1000);
 
-    // Session timer
     setInterval(tickSession, 1000);
-
     console.log('[Verifie] Panel injected');
   }
 
