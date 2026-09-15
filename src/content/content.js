@@ -1,475 +1,483 @@
 (() => {
   'use strict';
 
-  // Guard against double injection (manifest + programmatic, or extension reload)
-  if (window.__verifieLoaded) {
-    console.log('[Verifie] Already loaded, skipping re-init');
-    return;
-  }
+  // Prevent double injection
+  if (window.__verifieLoaded) return;
   window.__verifieLoaded = true;
 
-  // Ensure dependencies are available
-  if (typeof window.GoogleDocsReader === 'undefined') {
-    console.warn('[Verifie] GoogleDocsReader not loaded');
-    window.__verifieLoaded = false;
-    return;
-  }
-
-  const reader = new window.GoogleDocsReader();
-
-  // Safe wrapper for chrome API calls that may fail after extension reload
-  function safeChrome(fn, fallback) {
-    try {
-      return fn();
-    } catch (e) {
-      if (e && e.message && e.message.includes('Extension context invalidated')) {
-        console.warn('[Verifie] Extension context invalidated — please reload the page');
-      }
-      return fallback;
-    }
-  }
-
-  // === Document Replay State ===
-  const replay = {
-    history: [],
-    index: 0,
-    playing: false,
-    speed: 1
-  };
-
-  // === Real-time Sync ===
-  const sync = {
+  const reader = window.GoogleDocsReader ? new window.GoogleDocsReader() : null;
+  const state = {
     lastHash: '',
     lastSnapshot: null,
-    trackingActive: true,
-    intervalId: null,
-    syncInterval: 2000
+    active: true,
+    panel: null,
+    sessionStart: Date.now()
   };
 
-  // === Init ===
-  function init() {
-    injectVerifieButtons();
-    loadTrackingState();
-    startRealTimeSync();
-    setupMessageListener();
-    setupTrackersIfAvailable();
-    logStartup();
+  // ============================================================
+  // FLOATING PANEL — always visible inside Google Docs
+  // ============================================================
+  function createPanel() {
+    if (document.getElementById('verifie-panel')) return;
+
+    const panel = document.createElement('div');
+    panel.id = 'verifie-panel';
+    panel.innerHTML = `
+      <div class="verifie-panel-header" id="verifie-panel-header">
+        <div class="verifie-panel-brand">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+            <path d="M2 17l10 5 10-5"></path>
+            <path d="M2 12l10 5 10-5"></path>
+          </svg>
+          <span>Verifie</span>
+          <span class="verifie-live-dot"></span>
+        </div>
+        <button class="verifie-panel-toggle" id="verifie-panel-toggle" title="Minimize">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div class="verifie-panel-body" id="verifie-panel-body">
+        <div class="verifie-grid">
+          <div class="verifie-stat">
+            <span class="verifie-stat-val" id="v-words">0</span>
+            <span class="verifie-stat-lbl">Words</span>
+          </div>
+          <div class="verifie-stat">
+            <span class="verifie-stat-val" id="v-chars">0</span>
+            <span class="verifie-stat-lbl">Characters</span>
+          </div>
+          <div class="verifie-stat">
+            <span class="verifie-stat-val" id="v-paras">0</span>
+            <span class="verifie-stat-lbl">Paragraphs</span>
+          </div>
+          <div class="verifie-stat">
+            <span class="verifie-stat-val" id="v-time">00:00</span>
+            <span class="verifie-stat-lbl">Session</span>
+          </div>
+        </div>
+
+        <div class="verifie-ai-row">
+          <div class="verifie-ai-bar">
+            <div class="verifie-ai-fill" id="v-ai-fill" style="width:0%"></div>
+          </div>
+          <div class="verifie-ai-labels">
+            <span>AI <b id="v-ai-pct">0%</b></span>
+            <span>Human <b id="v-human-pct">100%</b></span>
+          </div>
+        </div>
+
+        <div class="verifie-actions">
+          <button class="verifie-btn verifie-btn-primary" id="v-analyze">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="M21 21l-4.35-4.35"></path>
+            </svg>
+            Analyze AI
+          </button>
+          <button class="verifie-btn verifie-btn-ghost" id="v-dashboard">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+            Dashboard
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Minimize toggle
+    const toggle = document.getElementById('verifie-panel-toggle');
+    const body = document.getElementById('verifie-panel-body');
+    toggle.addEventListener('click', () => {
+      const minimized = panel.classList.toggle('minimized');
+      toggle.innerHTML = minimized
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+    });
+
+    // Draggable header
+    makeDraggable(panel, document.getElementById('verifie-panel-header'));
+
+    // Buttons
+    document.getElementById('v-analyze').addEventListener('click', runAnalysis);
+    document.getElementById('v-dashboard').addEventListener('click', openDashboard);
+
+    state.panel = panel;
   }
 
-  function logStartup() {
-    console.log('[Verifie] Content script loaded for:', reader.getTitle());
-    console.log('[Verifie] Document ID:', reader.getDocumentId());
+  function makeDraggable(el, handle) {
+    let posX = 0, posY = 0, startX = 0, startY = 0;
+    handle.style.cursor = 'grab';
+
+    handle.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) return;
+      e.preventDefault();
+      startX = e.clientX;
+      startY = e.clientY;
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      handle.style.cursor = 'grabbing';
+    });
+
+    function onMove(e) {
+      posX = startX - e.clientX;
+      posY = startY - e.clientY;
+      startX = e.clientX;
+      startY = e.clientY;
+      const top = el.offsetTop - posY;
+      const left = el.offsetLeft - posX;
+      el.style.top = Math.max(0, Math.min(window.innerHeight - 60, top)) + 'px';
+      el.style.left = Math.max(0, Math.min(window.innerWidth - 60, left)) + 'px';
+      el.style.right = 'auto';
+    }
+
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      handle.style.cursor = 'grab';
+    }
   }
 
-  // === Buttons injected into Google Docs toolbar ===
-  function injectVerifieButtons() {
-    if (document.getElementById('verifie-toolbar')) return;
+  // ============================================================
+  // LIVE DATA
+  // ============================================================
+  function updatePanel(snapshot) {
+    if (!snapshot) return;
+    setText('v-words', formatNumber(snapshot.wordCount));
+    setText('v-chars', formatNumber(snapshot.charCount));
+    setText('v-paras', formatNumber(snapshot.paragraphCount));
+  }
 
-    const toolbar = document.querySelector('.kix-toolbar') ||
-                    document.querySelector('[role="toolbar"]');
+  function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el && el.textContent !== String(val)) el.textContent = val;
+  }
 
-    if (!toolbar) {
-      setTimeout(injectVerifieButtons, 1000);
+  function tickSession() {
+    const el = document.getElementById('v-time');
+    if (!el) return;
+    const elapsed = Math.floor((Date.now() - state.sessionStart) / 1000);
+    const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+    const s = (elapsed % 60).toString().padStart(2, '0');
+    el.textContent = `${m}:${s}`;
+  }
+
+  // ============================================================
+  // AI ANALYSIS (local heuristics, no API needed)
+  // ============================================================
+  function runAnalysis() {
+    if (!reader) return;
+    const text = reader.getText();
+    if (!text || text.length < 20) {
+      flashButton('v-analyze', 'Too short', true);
       return;
     }
 
-    const container = document.createElement('div');
-    container.id = 'verifie-toolbar';
-    container.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-left:8px;z-index:9999;';
+    const btn = document.getElementById('v-analyze');
+    btn.innerHTML = '<span class="verifie-spinner"></span> Analyzing...';
 
-    // Live counter badge
-    const counter = document.createElement('div');
-    counter.id = 'verifie-counter';
-    counter.style.cssText = `
-      display:inline-flex;align-items:center;gap:6px;padding:5px 10px;
-      background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;
-      color:#1e40af;font-size:11px;font-weight:600;
-      font-family:'Google Sans',Roboto,Arial,sans-serif;
-    `;
-    counter.innerHTML = `
-      <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;"></span>
-      <span id="verifie-live-chars">0</span> chars
-      <span style="color:#93c5fd;">•</span>
-      <span id="verifie-live-time">00:00</span>
-    `;
+    setTimeout(async () => {
+      let result = null;
 
-    // Dashboard button
-    const dashBtn = document.createElement('button');
-    dashBtn.id = 'verifie-dashboard-btn';
-    dashBtn.style.cssText = `
-      display:inline-flex;align-items:center;gap:6px;padding:6px 14px;
-      background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);
-      border:none;border-radius:6px;color:white;font-size:12px;font-weight:600;
-      font-family:'Google Sans',Roboto,Arial,sans-serif;cursor:pointer;
-      box-shadow:0 2px 8px rgba(59,130,246,0.35);transition:all .2s;
-    `;
-    dashBtn.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="3" y="3" width="7" height="7"></rect>
-        <rect x="14" y="3" width="7" height="7"></rect>
-        <rect x="14" y="14" width="7" height="7"></rect>
-        <rect x="3" y="14" width="7" height="7"></rect>
-      </svg>
-      Open Dashboard
-    `;
-    dashBtn.addEventListener('mouseenter', () => {
-      dashBtn.style.transform = 'translateY(-1px)';
-      dashBtn.style.boxShadow = '0 4px 14px rgba(59,130,246,0.5)';
-    });
-    dashBtn.addEventListener('mouseleave', () => {
-      dashBtn.style.transform = 'translateY(0)';
-      dashBtn.style.boxShadow = '0 2px 8px rgba(59,130,246,0.35)';
-    });
-    dashBtn.addEventListener('click', () => {
-      // Sync latest snapshot immediately before opening dashboard
-      const snapshot = reader.getSnapshot();
-      persistSnapshot(snapshot);
-      openDashboardTab();
-    });
-
-    container.appendChild(counter);
-    container.appendChild(dashBtn);
-    toolbar.appendChild(container);
-  }
-
-  // === Real-time content sync ===
-  function startRealTimeSync() {
-    // Wait for docs to load
-    const waitForReady = setInterval(() => {
-      if (reader.isReady()) {
-        clearInterval(waitForReady);
-        captureSnapshot(); // initial
-        sync.intervalId = setInterval(tick, sync.syncInterval);
+      // Try shared service first (remote with local fallback)
+      if (window.AIDetectionService) {
+        try {
+          const endpoints = window.VerifieSettings ? await window.VerifieSettings.getEndpoints() : {};
+          result = await window.AIDetectionService.analyze(text, {
+            token: endpoints.huggingFaceToken,
+            preferRemote: !!endpoints.huggingFaceToken
+          });
+        } catch (e) { /* fall through */ }
       }
+
+      if (!result) result = localAnalyze(text);
+
+      applyAiResult(result);
+
+      // Persist for dashboard
+      persistAnalysis(result, text);
     }, 500);
-
-    // Hard timeout after 30s
-    setTimeout(() => clearInterval(waitForReady), 30000);
   }
 
-  function tick() {
-    if (!sync.trackingActive) return;
-    captureSnapshot();
+  function localAnalyze(text) {
+    const words = text.split(/\s+/).filter(w => w.length > 0);
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    let ai = 0, human = 0;
+
+    const aiPatterns = [
+      [/\b(furthermore|moreover|additionally|consequently|therefore|thus|hence)\b/gi, 8],
+      [/\b(in conclusion|to sum up|in summary|overall)\b/gi, 7],
+      [/\b(it is important to note|it should be noted)\b/gi, 6],
+      [/\b(has revolutionized|has transformed|has created|has enabled)\b/gi, 5],
+      [/\b(unprecedented|significant|remarkable|substantial)\b/gi, 4],
+      [/\b(in today.s society|in modern society|in the modern world)\b/gi, 6],
+      [/\b(comprehensive|innovative|cutting.edge|groundbreaking)\b/gi, 4],
+      [/\b(harness|leverage|utilize|facilitate)\b/gi, 3]
+    ];
+    const humanPatterns = [
+      [/\b(I think|I believe|in my opinion|personally)\b/gi, 8],
+      [/\b(gonna|wanna|kinda|sorta|yeah|\bok\b)\b/gi, 7],
+      [/!{2,}/g, 3],
+      [/\b(very|really|super|totally|absolutely)\b/gi, 4],
+      [/\b(don't|can't|won't|isn't|aren't)\b/gi, 4]
+    ];
+
+    aiPatterns.forEach(([p, w]) => { const m = text.match(p); if (m) ai += m.length * w; });
+    humanPatterns.forEach(([p, w]) => { const m = text.match(p); if (m) human += m.length * w; });
+
+    const avgLen = words.length / Math.max(sentences.length, 1);
+    if (avgLen > 25) ai += 15; else if (avgLen > 18) ai += 8; else human += 10;
+
+    const diversity = new Set(words.map(w => w.toLowerCase())).size / Math.max(words.length, 1);
+    if (diversity < 0.5) ai += 10; else if (diversity > 0.8) human += 8;
+
+    const lens = sentences.map(s => s.trim().split(/\s+/).length);
+    const mean = lens.reduce((a, b) => a + b, 0) / Math.max(lens.length, 1);
+    const std = Math.sqrt(lens.reduce((s, l) => s + (l - mean) ** 2, 0) / Math.max(lens.length, 1));
+    if (std < 4) ai += 12; else if (std > 8) human += 10;
+
+    const total = ai + human;
+    let aiPct = total > 0 ? Math.round((ai / total) * 100) : 50;
+    if (words.length < 20) aiPct = Math.min(aiPct, 70);
+
+    return { aiPercent: aiPct, humanPercent: 100 - aiPct, source: 'local' };
   }
 
-  function captureSnapshot() {
-    const snapshot = reader.getSnapshot();
+  function applyAiResult(result) {
+    const aiPct = result.aiPercent;
+    const humanPct = 100 - aiPct;
 
-    // Only record if content changed
-    if (snapshot.hash === sync.lastHash) {
-      updateLiveUI(snapshot);
-      return;
+    setText('v-ai-pct', `${aiPct}%`);
+    setText('v-human-pct', `${humanPct}%`);
+
+    const fill = document.getElementById('v-ai-fill');
+    if (fill) {
+      fill.style.width = `${aiPct}%`;
+      fill.style.background = aiPct >= 70
+        ? 'linear-gradient(90deg,#f59e0b,#ef4444)'
+        : aiPct >= 40
+          ? 'linear-gradient(90deg,#3b82f6,#60a5fa)'
+          : 'linear-gradient(90deg,#22c55e,#4ade80)';
     }
 
-    const previous = sync.lastSnapshot;
-    snapshot.delta = previous ? snapshot.charCount - previous.charCount : 0;
-
-    sync.lastHash = snapshot.hash;
-    sync.lastSnapshot = snapshot;
-
-    persistSnapshot(snapshot);
-    updateLiveUI(snapshot);
-
-    // Notify popup if open
-    notifyPopup(snapshot);
+    const btn = document.getElementById('v-analyze');
+    btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"></circle><path d="M21 21l-4.35-4.35"></path></svg> Analyze AI`;
   }
 
-  /**
-   * Persist snapshot + derived stats into chrome.storage
-   * This is what the dashboard reads.
-   */
-  function persistSnapshot(snapshot) {
+  function persistAnalysis(result, text) {
+    if (!reader) return;
+    const docId = reader.getDocumentId();
+    safeChrome(() => {
+      chrome.storage.local.get(['analyses', 'documents'], (data) => {
+        const analyses = data.analyses || [];
+        analyses.push({
+          document_id: docId,
+          aiPercent: result.aiPercent,
+          humanPercent: result.humanPercent,
+          source: result.source,
+          wordCount: text.split(/\s+/).filter(Boolean).length,
+          timestamp: new Date().toISOString()
+        });
+        while (analyses.length > 200) analyses.shift();
+
+        // Also attach to document record
+        const documents = data.documents || [];
+        const doc = documents.find(d => d.google_doc_id === docId);
+        if (doc) doc.aiPercent = result.aiPercent;
+
+        chrome.storage.local.set({ analyses, documents });
+      });
+    });
+  }
+
+  // ============================================================
+  // SNAPSHOT + SYNC
+  // ============================================================
+  function capture() {
+    if (!reader || !state.active) return;
+    const snapshot = reader.getSnapshot();
+    if (!snapshot) return;
+
+    updatePanel(snapshot);
+
+    if (snapshot.hash === state.lastHash) return;
+    const prev = state.lastSnapshot;
+    snapshot.delta = prev ? snapshot.charCount - prev.charCount : 0;
+    state.lastHash = snapshot.hash;
+    state.lastSnapshot = snapshot;
+    persist(snapshot);
+  }
+
+  function persist(snapshot) {
     const docId = snapshot.documentId;
     if (!docId) return;
-    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
-
     safeChrome(() => {
-      chrome.storage.local.get(
-        ['documents', 'revisions', 'trackingData'],
-        (result) => {
-          if (!result) return;
-          const now = Date.now();
-          const documents = result.documents || [];
-          const revisions = result.revisions || [];
+      chrome.storage.local.get(['documents', 'revisions', 'trackingData'], (result) => {
+        if (!result) return;
+        const now = Date.now();
+        const documents = result.documents || [];
+        const revisions = result.revisions || [];
 
-          // Upsert document record
-          const doc = documents.find(d => d.google_doc_id === docId);
-          const docRecord = {
-            google_doc_id: docId,
-            title: snapshot.title,
-            url: snapshot.url,
-            wordCount: snapshot.wordCount,
-            charCount: snapshot.charCount,
-            charCountNoSpaces: snapshot.charCountNoSpaces,
-            paragraphCount: snapshot.paragraphCount,
-            sentenceCount: snapshot.sentenceCount,
-            readingTimeMinutes: snapshot.readingTimeMinutes,
-            lastModified: new Date(now).toISOString(),
-            firstSeen: doc ? doc.firstSeen : new Date(now).toISOString()
-          };
+        const doc = documents.find(d => d.google_doc_id === docId);
+        const rec = {
+          google_doc_id: docId,
+          title: snapshot.title,
+          url: snapshot.url,
+          wordCount: snapshot.wordCount,
+          charCount: snapshot.charCount,
+          paragraphCount: snapshot.paragraphCount,
+          readingTimeMinutes: snapshot.readingTimeMinutes,
+          lastModified: new Date(now).toISOString(),
+          firstSeen: doc ? doc.firstSeen : new Date(now).toISOString()
+        };
+        if (doc) Object.assign(doc, rec);
+        else documents.push({ id: docId, ...rec });
 
-          if (doc) {
-            Object.assign(doc, docRecord);
-          } else {
-            documents.push({ id: docId, ...docRecord });
-          }
+        revisions.push({
+          document_id: docId,
+          timestamp: new Date(now).toISOString(),
+          wordCount: snapshot.wordCount,
+          charCount: snapshot.charCount,
+          delta: snapshot.delta || 0
+        });
+        while (revisions.length > 500) revisions.shift();
 
-          // Append revision (cap at 500 to stay under quota)
-          revisions.push({
-            document_id: docId,
-            timestamp: new Date(now).toISOString(),
-            wordCount: snapshot.wordCount,
-            charCount: snapshot.charCount,
-            delta: snapshot.delta || 0,
-            hash: snapshot.hash
-          });
-          while (revisions.length > 500) revisions.shift();
-
-          // Update aggregate tracking data
-          const tracking = result.trackingData || {};
-          const sessionStart = tracking.sessionStart || now;
-          const totalChars = documents.reduce((s, d) => s + (d.charCount || 0), 0);
-
-          const trackingData = {
+        const tracking = result.trackingData || {};
+        const sessionStart = tracking.sessionStart || now;
+        chrome.storage.local.set({
+          documents,
+          revisions,
+          trackingData: {
             ...tracking,
-            active: sync.trackingActive,
-            charCount: totalChars,
-            keystrokes: tracking.keystrokes || 0,
+            active: state.active,
+            charCount: documents.reduce((s, d) => s + (d.charCount || 0), 0),
             sessionStart,
             sessionDuration: now - sessionStart,
             lastUpdate: now,
-            currentDoc: {
-              id: docId,
-              title: snapshot.title,
-              wordCount: snapshot.wordCount,
-              charCount: snapshot.charCount
-            }
-          };
-
-          chrome.storage.local.set({ documents, revisions, trackingData });
-        }
-      );
-    });
-  }
-
-  function updateLiveUI(snapshot) {
-    const charsEl = document.getElementById('verifie-live-chars');
-    const timeEl = document.getElementById('verifie-live-time');
-    if (charsEl) charsEl.textContent = formatNumber(snapshot.charCount);
-
-    if (timeEl && sync.lastSnapshot) {
-      // session timer handled by interval below
-    }
-  }
-
-  // Update the live session timer every second
-  setInterval(() => {
-    const timeEl = document.getElementById('verifie-live-time');
-    if (!timeEl) return;
-    safeChrome(() => {
-      chrome.storage.local.get(['trackingData'], (result) => {
-        const start = (result && result.trackingData && result.trackingData.sessionStart) || Date.now();
-        const elapsed = Math.floor((Date.now() - start) / 1000);
-        const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
-        const s = (elapsed % 60).toString().padStart(2, '0');
-        timeEl.textContent = `${m}:${s}`;
+            currentDoc: { id: docId, title: snapshot.title, wordCount: snapshot.wordCount }
+          }
+        });
       });
     });
-  }, 1000);
+  }
 
-  function openDashboardTab() {
+  function openDashboard() {
+    if (reader) persist(reader.getSnapshot());
     safeChrome(() => {
-      const dashUrl = chrome.runtime.getURL('dashboard/index.html');
-      window.open(dashUrl, '_blank');
+      window.open(chrome.runtime.getURL('dashboard/index.html'), '_blank');
     }, () => {
       window.open('https://hanezrafa.github.io/verifie/dashboard/', '_blank');
     });
   }
 
-  function notifyPopup(snapshot) {
-    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
-    safeChrome(() => {
-      const p = chrome.runtime.sendMessage({
-        action: 'liveUpdate',
-        snapshot: {
-          title: snapshot.title,
-          wordCount: snapshot.wordCount,
-          charCount: snapshot.charCount,
-          documentId: snapshot.documentId,
-          lastModified: new Date().toISOString()
-        }
-      });
-      if (p && typeof p.catch === 'function') p.catch(() => {});
-    });
+  function flashButton(id, msg, isError) {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const original = btn.innerHTML;
+    btn.innerHTML = msg;
+    btn.style.background = isError ? '#fef2f2' : '';
+    btn.style.color = isError ? '#ef4444' : '';
+    setTimeout(() => {
+      btn.innerHTML = original;
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 1500);
   }
 
-  // === Optional advanced tracker (keystrokes/velocity) ===
-  function setupTrackersIfAvailable() {
-    if (typeof window.EditingTracker === 'undefined') return;
-
-    window.verifieTracker = new window.EditingTracker({
-      interval: 2000,
-      onUpdate: (stats) => {
-        if (typeof chrome === 'undefined' || !chrome.storage) return;
-        safeChrome(() => {
-          chrome.storage.local.get(['trackingData'], (result) => {
-            chrome.storage.local.set({
-              trackingData: {
-                ...((result && result.trackingData) || {}),
-                keystrokes: stats.keystrokes,
-                charsTyped: stats.charsTyped,
-                charsDeleted: stats.charsDeleted,
-                velocity: stats.velocity,
-                isIdle: stats.isIdle,
-                active: stats.active
-              }
-            });
-          });
-        });
+  // ============================================================
+  // HELPERS
+  // ============================================================
+  function safeChrome(fn, fallback) {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.storage) {
+        if (fallback) return fallback();
+        return;
       }
-    });
+      return fn();
+    } catch (e) {
+      if (e && e.message && e.message.includes('context invalidated')) {
+        clearInterval(state._interval);
+        const panel = document.getElementById('verifie-panel');
+        if (panel) panel.remove();
+        return;
+      }
+      if (fallback) return fallback();
+    }
   }
 
-  function loadTrackingState() {
-    if (typeof chrome === 'undefined' || !chrome.storage) return;
-    safeChrome(() => {
-      chrome.storage.local.get(['trackingData'], (result) => {
-        if (result && result.trackingData && result.trackingData.active === false) {
-          sync.trackingActive = false;
-          if (window.verifieTracker) window.verifieTracker.pause();
-        }
-      });
-    });
+  function formatNumber(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n ?? 0);
   }
 
-  // === Messaging with popup ===
-  function setupMessageListener() {
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      switch (message.action) {
-        case 'loadHistory': {
-          const snapshot = reader.getSnapshot();
-          sendResponse({
-            title: snapshot.title,
-            url: snapshot.url,
-            documentId: snapshot.documentId,
-            snapshot,
-            stats: getStats(snapshot)
-          });
+  // ============================================================
+  // MESSAGE LISTENER
+  // ============================================================
+  function setupMessages() {
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) return;
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (!msg) return;
+      switch (msg.action) {
+        case 'getLiveSnapshot':
+          sendResponse({ snapshot: reader ? reader.getSnapshot() : null });
           break;
-        }
-
-        case 'getContent': {
-          sendResponse({ content: reader.getText(), snapshot: reader.getSnapshot() });
+        case 'getContent':
+          sendResponse({ content: reader ? reader.getText() : '' });
           break;
-        }
-
-        case 'getLiveSnapshot': {
-          sendResponse({ snapshot: reader.getSnapshot() });
-          break;
-        }
-
-        case 'toggleTracking': {
-          sync.trackingActive = message.active;
-          if (window.verifieTracker) {
-            sync.trackingActive ? window.verifieTracker.resume() : window.verifieTracker.pause();
-          }
-          chrome.storage.local.get(['trackingData'], (result) => {
-            chrome.storage.local.set({
-              trackingData: { ...(result.trackingData || {}), active: sync.trackingActive }
-            });
-          });
-          sendResponse({ success: true, active: sync.trackingActive });
-          break;
-        }
-
-        case 'openDashboard': {
-          const snapshot = reader.getSnapshot();
-          persistSnapshot(snapshot);
-          openDashboardTab();
+        case 'openDashboard':
+          openDashboard();
           sendResponse({ success: true });
           break;
-        }
-
-        case 'captureSnapshot': {
-          captureSnapshot();
-          sendResponse({ success: true, count: sync.history?.length || 0 });
+        case 'toggleTracking':
+          state.active = msg.active !== false;
+          sendResponse({ success: true, active: state.active });
           break;
-        }
-
-        case 'startReplay': {
-          startReplay();
-          sendResponse({ success: true });
-          break;
-        }
-
-        case 'stopReplay': {
-          replay.playing = false;
-          sendResponse({ success: true });
-          break;
-        }
-
-        case 'setSpeed': {
-          replay.speed = message.speed;
-          sendResponse({ success: true });
-          break;
-        }
+        default:
+          sendResponse({ success: false });
       }
       return true;
     });
   }
 
-  function getStats(snapshot) {
-    return {
-      words: snapshot.wordCount,
-      chars: snapshot.charCount,
-      deletes: 0,
-      time: '0h 0m',
-      edits: sync.history?.length || 0
-    };
-  }
+  // ============================================================
+  // INIT
+  // ============================================================
+  function start() {
+    createPanel();
+    setupMessages();
 
-  function startReplay() {
-    replay.playing = true;
-    replay.index = 0;
-    const step = () => {
-      if (!replay.playing || replay.index >= (sync.history?.length || 0) - 1) {
-        replay.playing = false;
-        return;
+    // Wait for Docs to render, then begin polling
+    let tries = 0;
+    const wait = setInterval(() => {
+      tries++;
+      if (reader && reader.isReady()) {
+        clearInterval(wait);
+        capture();
+        state._interval = setInterval(capture, 2000);
+      } else if (tries > 60) {
+        clearInterval(wait);
+        // Panel still shows, just without content yet
       }
-      replay.index++;
-      setTimeout(step, 1000 / replay.speed);
-    };
-    step();
+    }, 500);
+
+    // Session timer
+    setInterval(tickSession, 1000);
+
+    console.log('[Verifie] Panel ready');
   }
 
-  // === Helpers ===
-  function formatNumber(num) {
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return String(num);
+  if (document.body) {
+    start();
+  } else {
+    document.addEventListener('DOMContentLoaded', start);
   }
-
-  // Save session on unload
-  window.addEventListener('beforeunload', () => {
-    if (typeof chrome === 'undefined' || !chrome.storage) return;
-    safeChrome(() => {
-      chrome.storage.local.get(['sessions', 'trackingData'], (result) => {
-        const sessions = result.sessions || [];
-        const t = result.trackingData || {};
-        if (t.sessionStart) {
-          sessions.push({
-            id: Date.now(),
-            documentTitle: reader.getTitle(),
-            startTime: t.sessionStart,
-            endTime: Date.now(),
-            duration: Date.now() - t.sessionStart,
-            charCount: t.charCount || 0
-          });
-          chrome.storage.local.set({ sessions: sessions.slice(-50) });
-        }
-      });
-    });
-  });
-
-  init();
 })();

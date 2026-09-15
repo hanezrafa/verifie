@@ -2,7 +2,12 @@
  * AI Detection Service
  * Uses Hugging Face Inference API (free tier: 30K chars/month)
  * Falls back to local heuristic analysis when API unavailable
+ * Idempotent — safe to load multiple times.
  */
+(function (global) {
+  'use strict';
+
+  if (global.AIDetectionService) return;
 
 const AIDetectionService = {
   HF_API_BASE: 'https://api-inference.huggingface.co/models',
@@ -179,6 +184,9 @@ const AIDetectionService = {
   }
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { AIDetectionService };
-}
+  global.AIDetectionService = AIDetectionService;
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { AIDetectionService };
+  }
+})(typeof window !== 'undefined' ? window : self);

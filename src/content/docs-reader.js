@@ -1,97 +1,117 @@
 /**
  * Google Docs Content Reader
- * Robustly extracts real-time content from Google Docs DOM
+ * Robustly extracts real-time content from Google Docs DOM.
  * Idempotent — safe to load multiple times.
  */
 (function (global) {
   'use strict';
 
-  if (global.GoogleDocsReader) return; // already loaded
+  if (global.GoogleDocsReader) return;
 
   class GoogleDocsReader {
     constructor() {
-      this.selectors = {
-        title: [
-          '[aria-label="Document title"]',
-          '.kix-document-title',
-          'input[aria-label="Document title"]',
-          '#docs-title-input'
-        ],
-        content: [
-          '.kix-page-content-wrapper',
-          '.kix-appview-editor',
-          '[role="document"]',
-          '.docs-texteventtarget-iframe'
-        ],
-        paragraphs: [
-          '.kix-paragraphrenderer',
-          '.kix-lineview',
-          '[class*="paragraph"]'
-        ]
-      };
+      this.titleSelectors = [
+        '#docs-title-input',
+        '.docs-title-input',
+        'input[aria-label="Document title"]',
+        '[aria-label="Document title"]',
+        '.kix-document-title'
+      ];
     }
 
     getTitle() {
-      for (const sel of this.selectors.title) {
+      for (const sel of this.titleSelectors) {
         const el = document.querySelector(sel);
         if (el) {
-          const text = el.value || el.textContent || el.innerText;
-          if (text && text.trim()) return text.trim();
+          const text = (el.value || el.textContent || '').trim();
+          if (text) return text;
         }
       }
-      return (document.title || '').replace(' - Google Docs', '').trim() || 'Untitled Document';
+      const t = (document.title || '').replace(/\s*-\s*Google Docs\s*$/, '').trim();
+      return t || 'Untitled Document';
     }
 
     getDocumentId() {
-      const match = window.location.href.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
-      return match ? match[1] : null;
+      const m = window.location.href.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
+      return m ? m[1] : null;
     }
 
+    /**
+     * Find the element that holds the document text.
+     * Tries many selectors because Google Docs DOM varies.
+     */
     getContentElement() {
-      for (const sel of this.selectors.content) {
+      const selectors = [
+        '.kix-page-content-wrapper',
+        '.kix-page',
+        '.kix-appview-editor',
+        '.docs-editor-container',
+        '[role="document"]',
+        '.kix-canvas-tile-content'
+      ];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          // Ensure it actually has text
+          if ((el.innerText || el.textContent || '').trim().length > 0) return el;
+        }
+      }
+      // Last resort: return first selector that exists even if empty
+      for (const sel of selectors) {
         const el = document.querySelector(sel);
         if (el) return el;
       }
       return null;
     }
 
+    /**
+     * Extract text. Google Docs renders each line in .kix-lineview.
+     * We join line contents in reading order.
+     */
     getText() {
-      const contentEl = this.getContentElement();
-      if (contentEl) {
-        const text = contentEl.innerText || contentEl.textContent || '';
-        if (text.trim()) return this.normalizeText(text);
+      // Strategy 1: paragraph/line renderers (most accurate)
+      const lineText = this.getTextFromLines();
+      if (lineText && lineText.trim().length > 0) return this.normalize(lineText);
+
+      // Strategy 2: content wrapper innerText
+      const el = this.getContentElement();
+      if (el) {
+        const text = el.innerText || '';
+        if (text.trim().length > 0) return this.normalize(text);
       }
-      const paragraphs = this.getParagraphs();
-      if (paragraphs.length > 0) return paragraphs.join('\n');
+
       return '';
     }
 
-    getParagraphs() {
-      const result = [];
-      for (const sel of this.selectors.paragraphs) {
-        const elements = document.querySelectorAll(sel);
-        if (elements.length > 0) {
-          elements.forEach(el => {
-            const text = el.innerText || el.textContent || '';
-            if (text.trim()) result.push(text.trim());
-          });
-          break;
-        }
-      }
-      return result;
+    getTextFromLines() {
+      // Newer Docs use .kix-lineview; older use .kix-paragraphrenderer
+      let lines = document.querySelectorAll('.kix-lineview');
+      if (lines.length === 0) lines = document.querySelectorAll('.kix-paragraphrenderer');
+      if (lines.length === 0) lines = document.querySelectorAll('[class*="lineview"]');
+      if (lines.length === 0) return '';
+
+      const out = [];
+      lines.forEach(line => {
+        const t = (line.innerText || line.textContent || '').replace(/\u00A0/g, ' ');
+        if (t.length > 0) out.push(t.replace(/\n+$/, ''));
+      });
+      return out.join('\n');
     }
 
-    normalizeText(text) {
+    normalize(text) {
       return text
         .replace(/\u00A0/g, ' ')
         .replace(/\r\n/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
         .trim();
     }
 
     getSnapshot() {
       const text = this.getText();
       const words = text.split(/\s+/).filter(w => w.length > 0);
+      const lines = text.split('\n').filter(l => l.trim().length > 0);
 
       return {
         text,
@@ -101,22 +121,21 @@
         wordCount: words.length,
         charCount: text.length,
         charCountNoSpaces: text.replace(/\s/g, '').length,
-        paragraphCount: text.split('\n').filter(l => l.trim()).length,
+        paragraphCount: lines.length,
         sentenceCount: text.split(/[.!?]+/).filter(s => s.trim()).length,
+        readingTimeMinutes: Math.max(1, Math.ceil(words.length / 200)),
         timestamp: Date.now(),
-        readingTimeMinutes: Math.ceil(words.length / 200) || 1,
         hash: this.hashCode(text)
       };
     }
 
     hashCode(str) {
-      let hash = 0;
+      let h = 0;
       for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
+        h = ((h << 5) - h) + str.charCodeAt(i);
+        h = h & h;
       }
-      return hash.toString(36);
+      return h.toString(36);
     }
 
     isReady() {
