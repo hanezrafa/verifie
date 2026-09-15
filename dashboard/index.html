@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verifie Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-mark">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+            <path d="M2 17l10 5 10-5"></path>
+            <path d="M2 12l10 5 10-5"></path>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <h1>Verifie</h1>
+          <span>Dashboard</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-view="overview">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+          Overview
+        </button>
+        <button class="nav-item" data-view="documents">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+          </svg>
+          Documents
+        </button>
+        <button class="nav-item" data-view="analytics">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6" y1="20" x2="6" y2="14"></line>
+          </svg>
+          Analytics
+        </button>
+        <button class="nav-item" data-view="ai-detection">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+            <path d="M8 21h8"></path>
+            <path d="M12 17v4"></path>
+          </svg>
+          AI Detection
+        </button>
+        <button class="nav-item" data-view="sessions">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          Sessions
+        </button>
+        <button class="nav-item" data-view="settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          Settings
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="connection-status" id="connection-status">
+          <div class="status-dot"></div>
+          <span>Local Mode</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h2 id="view-title">Overview</h2>
+          <p id="view-subtitle">Your document analytics at a glance</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn-secondary" id="btn-refresh">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            Refresh
+          </button>
+          <button class="btn-primary" id="btn-connect">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+            Connect Cloud
+          </button>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- Overview View -->
+        <div class="view active" id="view-overview">
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-card-header">
+                <div class="stat-card-icon blue">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
+                </div>
+                <span class="stat-trend up">+12%</span>
+              </div>
+              <div class="stat-value" id="overview-docs">0</div>
+              <div class="stat-label">Documents Tracked</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-card-header">
+                <div class="stat-card-icon green">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                  </svg>
+                </div>
+                <span class="stat-trend up">+8%</span>
+              </div>
+              <div class="stat-value" id="overview-chars">0</div>
+              <div class="stat-label">Characters Typed</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-card-header">
+                <div class="stat-card-icon purple">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                  </svg>
+                </div>
+                <span class="stat-trend up">+5%</span>
+              </div>
+              <div class="stat-value" id="overview-time">0h</div>
+              <div class="stat-label">Time Editing</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-card-header">
+                <div class="stat-card-icon orange">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                    <path d="M8 21h8"></path>
+                    <path d="M12 17v4"></path>
+                  </svg>
+                </div>
+                <span class="stat-trend down">-3%</span>
+              </div>
+              <div class="stat-value" id="overview-ai">0%</div>
+              <div class="stat-label">Avg AI Content</div>
+            </div>
+          </div>
+
+          <div class="chart-row">
+            <div class="chart-card wide">
+              <div class="chart-header">
+                <h3>Editing Activity</h3>
+                <div class="chart-legend">
+                  <span class="legend-item"><span class="legend-dot blue"></span>Characters</span>
+                  <span class="legend-item"><span class="legend-dot green"></span>Time (min)</span>
+                </div>
+              </div>
+              <canvas id="activity-chart" width="800" height="250"></canvas>
+            </div>
+          </div>
+
+          <div class="chart-row">
+            <div class="chart-card">
+              <div class="chart-header">
+                <h3>AI vs Human Content</h3>
+              </div>
+              <div class="donut-container">
+                <canvas id="ai-donut" width="300" height="300"></canvas>
+                <div class="donut-center">
+                  <span class="donut-value" id="donut-ai-value">0%</span>
+                  <span class="donut-label">AI Content</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="chart-card">
+              <div class="chart-header">
+                <h3>Recent Documents</h3>
+              </div>
+              <div class="doc-list" id="recent-docs">
+                <div class="empty-state">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
+                  <p>No documents yet</p>
+                  <span>Open a Google Doc with the extension to start</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Documents View -->
+        <div class="view" id="view-documents">
+          <div class="toolbar">
+            <div class="search-box">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="M21 21l-4.35-4.35"></path>
+              </svg>
+              <input type="text" placeholder="Search documents..." id="search-docs">
+            </div>
+            <button class="btn-secondary" id="btn-export-all">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              Export All
+            </button>
+          </div>
+          <div class="doc-grid" id="doc-grid">
+            <div class="empty-state large">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+              </svg>
+              <h3>No documents tracked yet</h3>
+              <p>Install the Verifie extension and open a Google Doc to begin</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Analytics View -->
+        <div class="view" id="view-analytics">
+          <div class="chart-row">
+            <div class="chart-card">
+              <div class="chart-header">
+                <h3>Writing Velocity</h3>
+                <span class="chart-subtitle">Characters per minute</span>
+              </div>
+              <canvas id="velocity-chart" width="400" height="250"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="chart-header">
+                <h3>Peak Activity Hours</h3>
+                <span class="chart-subtitle">By time of day</span>
+              </div>
+              <canvas id="hours-chart" width="400" height="250"></canvas>
+            </div>
+          </div>
+          <div class="chart-row">
+            <div class="chart-card wide">
+              <div class="chart-header">
+                <h3>Session Length Distribution</h3>
+              </div>
+              <canvas id="session-chart" width="800" height="250"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Detection View -->
+        <div class="view" id="view-ai-detection">
+          <div class="ai-hero">
+            <div class="ai-hero-content">
+              <h3>AI Content Detection</h3>
+              <p>Analyze your documents for AI-generated content using Hugging Face models or local heuristics</p>
+              <div class="ai-mode-toggle">
+                <button class="mode-btn active" data-mode="local">Local (Free)</button>
+                <button class="mode-btn" data-mode="remote">Hugging Face API</button>
+              </div>
+            </div>
+          </div>
+          <div class="chart-row">
+            <div class="chart-card">
+              <div class="chart-header">
+                <h3>Detection History</h3>
+              </div>
+              <canvas id="ai-history-chart" width="400" height="250"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="chart-header">
+                <h3>Model Status</h3>
+              </div>
+              <div class="model-status" id="model-status">
+                <div class="model-item">
+                  <div class="model-info">
+                    <span class="model-name">Local Heuristics</span>
+                    <span class="model-desc">Vocabulary, structure, burstiness analysis</span>
+                  </div>
+                  <span class="badge success">Active</span>
+                </div>
+                <div class="model-item">
+                  <div class="model-info">
+                    <span class="model-name">Hugging Face RoBERTa</span>
+                    <span class="model-desc">Hello-SimpleAI/chatgpt-detector-roberta</span>
+                  </div>
+                  <span class="badge" id="hf-badge">Not configured</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sessions View -->
+        <div class="view" id="view-sessions">
+          <div class="chart-row">
+            <div class="chart-card wide">
+              <div class="chart-header">
+                <h3>Editing Sessions Timeline</h3>
+                <span class="chart-subtitle" id="session-count">0 sessions</span>
+              </div>
+              <div class="session-timeline" id="session-timeline">
+                <div class="empty-state">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                  </svg>
+                  <p>No sessions recorded</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings View -->
+        <div class="view" id="view-settings">
+          <div class="settings-grid">
+            <div class="settings-card">
+              <div class="settings-header">
+                <h3>Cloud Sync (Supabase)</h3>
+                <span class="badge" id="supabase-badge">Not configured</span>
+              </div>
+              <p class="settings-desc">Sync your data across devices using Supabase free tier (500MB)</p>
+              <div class="form-group">
+                <label>Project URL</label>
+                <input type="text" id="input-supabase-url" placeholder="https://xxx.supabase.co">
+              </div>
+              <div class="form-group">
+                <label>Anon Key</label>
+                <input type="password" id="input-supabase-key" placeholder="eyJhbGciOiJI...">
+              </div>
+              <button class="btn-primary" id="btn-save-supabase">Save & Test Connection</button>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-header">
+                <h3>AI Detection (Hugging Face)</h3>
+                <span class="badge" id="hf-badge-2">Not configured</span>
+              </div>
+              <p class="settings-desc">Use Hugging Face Inference API for accurate AI detection (30K chars/month free)</p>
+              <div class="form-group">
+                <label>API Token</label>
+                <input type="password" id="input-hf-token" placeholder="hf_xxxxxxxxxxxx">
+              </div>
+              <button class="btn-primary" id="btn-save-hf">Save Token</button>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-header">
+                <h3>Google Docs API</h3>
+                <span class="badge" id="gdocs-badge">Not configured</span>
+              </div>
+              <p class="settings-desc">Fetch real revision history from Google Docs (60 req/min free)</p>
+              <div class="form-group">
+                <label>Worker URL (proxy)</label>
+                <input type="text" id="input-worker-url" placeholder="https://verifie.yourname.workers.dev">
+              </div>
+              <button class="btn-primary" id="btn-save-worker">Save</button>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-header">
+                <h3>Data Management</h3>
+              </div>
+              <p class="settings-desc">Export or clear your locally stored data</p>
+              <div class="button-row">
+                <button class="btn-secondary" id="btn-export-data">Export All Data</button>
+                <button class="btn-danger" id="btn-clear-data">Clear Local Data</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../src/shared/config.js"></script>
+  <script src="../src/shared/ai-detection.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

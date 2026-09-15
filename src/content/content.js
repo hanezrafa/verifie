@@ -270,63 +270,145 @@
 
   const docsReplay = new DocsReplay();
 
-  // Real-time character tracking
-  let lastCharCount = 0;
+  // === Advanced Real-time Tracking ===
   let trackingActive = true;
+  let tracker = null;
 
   chrome.storage.local.get(['trackingData'], (result) => {
     if (result.trackingData && result.trackingData.active === false) {
       trackingActive = false;
     }
+    startTracker();
   });
 
-  function trackCharChanges() {
-    const contentEl = document.querySelector('.kix-page-content-wrapper') ||
-                     document.querySelector('[role="document"]') ||
-                     document.querySelector('.docs-texteventtarget-iframe');
-
-    if (!contentEl) {
-      setTimeout(trackCharChanges, 1000);
+  function startTracker() {
+    if (typeof EditingTracker === 'undefined') {
+      console.warn('EditingTracker not loaded, using fallback tracking');
+      startFallbackTracking();
       return;
     }
 
-    const currentCharCount = (contentEl.innerText || contentEl.textContent || '').length;
-    
-    if (lastCharCount > 0 && trackingActive) {
-      const delta = currentCharCount - lastCharCount;
-      if (delta !== 0) {
+    tracker = new EditingTracker({
+      interval: 2000,
+      onUpdate: (stats) => {
+        // Send stats to popup/background
         chrome.runtime.sendMessage({
-          action: 'updateCharCount',
-          delta: Math.abs(delta)
+          action: 'trackingUpdate',
+          stats
+        }).catch(() => {});
+
+        // Persist to storage
+        chrome.storage.local.get(['trackingData'], (result) => {
+          const existing = result.trackingData || {};
+          chrome.storage.local.set({
+            trackingData: {
+              ...existing,
+              charCount: stats.charsTyped,
+              deletes: stats.charsDeleted,
+              keystrokes: stats.keystrokes,
+              startTime: existing.startTime || Date.now(),
+              active: stats.active,
+              lastUpdate: Date.now()
+            }
+          });
+        });
+      },
+      onSessionChange: (session) => {
+        chrome.storage.local.get(['sessions'], (result) => {
+          const sessions = result.sessions || [];
+          sessions.push({
+            ...session,
+            id: Date.now(),
+            documentTitle: docsReplay.docTitle
+          });
+          // Keep last 50 sessions
+          chrome.storage.local.set({ sessions: sessions.slice(-50) });
         });
       }
-    }
-    
-    lastCharCount = currentCharCount;
+    });
+
+    // Pause/resume on visibility change
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        tracker.pause();
+      } else {
+        tracker.resume();
+      }
+    });
+
+    if (!trackingActive) tracker.pause();
   }
 
-  // Initial character count
-  setTimeout(() => {
-    const contentEl = document.querySelector('.kix-page-content-wrapper') ||
-                     document.querySelector('[role="document"]') ||
-                     document.querySelector('.docs-texteventtarget-iframe');
-    if (contentEl) {
-      lastCharCount = (contentEl.innerText || contentEl.textContent || '').length;
-    }
-  }, 2000);
+  function startFallbackTracking() {
+    let lastCharCount = 0;
 
-  // Track changes every 2 seconds
-  setInterval(trackCharChanges, 2000);
+    function trackCharChanges() {
+      const contentEl = document.querySelector('.kix-page-content-wrapper') ||
+                       document.querySelector('[role="document"]') ||
+                       document.querySelector('.docs-texteventtarget-iframe');
+      if (!contentEl) return;
+
+      const currentCharCount = (contentEl.innerText || contentEl.textContent || '').length;
+      if (lastCharCount > 0 && trackingActive) {
+        const delta = currentCharCount - lastCharCount;
+        if (delta > 0) {
+          chrome.runtime.sendMessage({ action: 'updateCharCount', delta }).catch(() => {});
+        }
+      }
+      lastCharCount = currentCharCount;
+    }
+
+    setTimeout(trackCharChanges, 2000);
+    setInterval(trackCharChanges, 2000);
+  }
 
   // Listen for messages from popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === 'toggleTracking') {
-      trackingActive = message.active;
-      chrome.storage.local.set({
-        trackingData: { active: trackingActive }
-      });
-      sendResponse({ success: true });
+    switch (message.action) {
+      case 'toggleTracking':
+        trackingActive = message.active;
+        if (tracker) {
+          trackingActive ? tracker.resume() : tracker.pause();
+        }
+        chrome.storage.local.get(['trackingData'], (result) => {
+          chrome.storage.local.set({
+            trackingData: { ...(result.trackingData || {}), active: trackingActive }
+          });
+        });
+        sendResponse({ success: true });
+        break;
+
+      case 'getTrackingStats':
+        if (tracker) {
+          sendResponse({ stats: tracker.getSummary(), session: tracker.getSession() });
+        } else {
+          sendResponse({ stats: null });
+        }
+        break;
+
+      case 'getDocumentTitle':
+        docsReplay.getDocumentInfo();
+        sendResponse({ title: docsReplay.docTitle, url: docsReplay.docUrl });
+        break;
     }
     return true;
+  });
+
+  // Save session on page unload
+  window.addEventListener('beforeunload', () => {
+    if (tracker) {
+      const session = tracker.getSession();
+      if (session.charsTyped > 0) {
+        chrome.storage.local.get(['sessions'], (result) => {
+          const sessions = result.sessions || [];
+          sessions.push({
+            ...session,
+            id: Date.now(),
+            documentTitle: docsReplay.docTitle
+          });
+          chrome.storage.local.set({ sessions: sessions.slice(-50) });
+        });
+      }
+    }
   });
 })();

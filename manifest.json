@@ -1,12 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Verifie",
-  "version": "1.0.0",
-  "description": "View and replay edit history of Google Docs with detailed statistics",
+  "version": "1.1.0",
+  "description": "Analyze, track, and verify Google Docs content with AI detection and real-time analytics",
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "identity",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://docs.googleapis.com/*",
+    "https://www.googleapis.com/*",
+    "https://api-inference.huggingface.co/*",
+    "https://*.supabase.co/*"
   ],
   "action": {
     "default_popup": "src/popup/popup.html",
@@ -20,7 +28,11 @@
   "content_scripts": [
     {
       "matches": ["*://docs.google.com/document/*"],
-      "js": ["src/content/content.js"],
+      "js": [
+        "src/shared/config.js",
+        "src/shared/editing-tracker.js",
+        "src/content/content.js"
+      ],
       "css": ["src/content/content.css"],
       "run_at": "document_idle"
     }
@@ -28,6 +40,12 @@
   "background": {
     "service_worker": "src/background/background.js"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["dashboard/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "icons": {
     "16": "assets/icons/icon16.png",
     "32": "assets/icons/icon32.png",

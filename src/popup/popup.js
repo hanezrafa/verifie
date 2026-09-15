@@ -210,7 +210,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
       await simulateAnalysisDelay();
 
-      const result = analyzeContent(content);
+      // Use shared AI detection service (remote with local fallback)
+      const endpoints = await VerifieSettings.getEndpoints();
+      const settings = await VerifieSettings.load();
+      const preferRemote = settings.aiDetectionMode === 'remote' && !!endpoints.huggingFaceToken;
+
+      let result;
+      if (typeof AIDetectionService !== 'undefined') {
+        result = await AIDetectionService.analyze(content, {
+          token: endpoints.huggingFaceToken,
+          preferRemote
+        });
+        // Normalize indicators for display
+        if (!result.indicators) {
+          result.indicators = {
+            vocab: Math.min(100, Math.round(result.humanPercent * 0.8 + 10)),
+            sentence: Math.min(100, Math.round(result.aiPercent * 0.9))
+          };
+        }
+      } else {
+        result = analyzeContent(content);
+      }
+
       displayResults(result);
     } catch (err) {
       const result = analyzeContent(generateSampleContent());
@@ -629,4 +650,91 @@ document.addEventListener('DOMContentLoaded', () => {
       saveTrackingData();
     }
   }, 2000);
+
+  // === Settings Panel ===
+  const settingsPanel = document.getElementById('settings-panel');
+  const btnSettings = document.getElementById('btn-settings');
+  const btnCloseSettings = document.getElementById('btn-close-settings');
+  const btnDashboard = document.getElementById('btn-dashboard');
+  const btnOpenDashboardFull = document.getElementById('btn-open-dashboard-full');
+  const btnSaveSettings = document.getElementById('btn-save-settings');
+  const toggleTrackingSetting = document.getElementById('toggle-tracking-setting');
+
+  let currentTrackingEnabled = true;
+
+  async function loadSettingsPanel() {
+    const stored = await VerifieStorage.get(['endpoints', 'settings']);
+    const endpoints = stored.endpoints || {};
+    const settings = { ...VERIFIE_CONFIG.defaults, ...(stored.settings || {}) };
+
+    document.getElementById('set-supabase-url').value = endpoints.supabaseUrl || '';
+    document.getElementById('set-supabase-key').value = endpoints.supabaseAnonKey || '';
+    document.getElementById('set-hf-token').value = endpoints.huggingFaceToken || '';
+    document.getElementById('set-worker-url').value = endpoints.workerUrl || '';
+
+    updateSettingStatus('status-supabase', !!endpoints.supabaseUrl && !!endpoints.supabaseAnonKey);
+    updateSettingStatus('status-hf', !!endpoints.huggingFaceToken);
+    updateSettingStatus('status-worker', !!endpoints.workerUrl);
+
+    currentTrackingEnabled = settings.trackingEnabled !== false;
+    toggleTrackingSetting.classList.toggle('active', currentTrackingEnabled);
+  }
+
+  function updateSettingStatus(id, isConfigured) {
+    const el = document.getElementById(id);
+    el.textContent = isConfigured ? '✓ Configured' : 'Not configured';
+    el.className = isConfigured ? 'setting-status ok' : 'setting-status';
+  }
+
+  btnSettings.addEventListener('click', () => {
+    loadSettingsPanel();
+    settingsPanel.classList.add('open');
+  });
+
+  btnCloseSettings.addEventListener('click', () => {
+    settingsPanel.classList.remove('open');
+  });
+
+  toggleTrackingSetting.addEventListener('click', () => {
+    currentTrackingEnabled = !currentTrackingEnabled;
+    toggleTrackingSetting.classList.toggle('active', currentTrackingEnabled);
+  });
+
+  btnSaveSettings.addEventListener('click', async () => {
+    const endpoints = {
+      supabaseUrl: document.getElementById('set-supabase-url').value.trim(),
+      supabaseAnonKey: document.getElementById('set-supabase-key').value.trim(),
+      huggingFaceToken: document.getElementById('set-hf-token').value.trim(),
+      workerUrl: document.getElementById('set-worker-url').value.trim()
+    };
+
+    await VerifieSettings.saveEndpoints(endpoints);
+    await VerifieSettings.save({ trackingEnabled: currentTrackingEnabled });
+
+    updateSettingStatus('status-supabase', !!endpoints.supabaseUrl && !!endpoints.supabaseAnonKey);
+    updateSettingStatus('status-hf', !!endpoints.huggingFaceToken);
+    updateSettingStatus('status-worker', !!endpoints.workerUrl);
+
+    // Notify content scripts
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.url && tab.url.includes('docs.google.com/document')) {
+      chrome.tabs.sendMessage(tab.id, {
+        action: 'toggleTracking',
+        active: currentTrackingEnabled
+      }).catch(() => {});
+    }
+
+    // Visual feedback
+    btnSaveSettings.textContent = '✓ Saved!';
+    setTimeout(() => {
+      btnSaveSettings.textContent = 'Save Settings';
+    }, 1500);
+  });
+
+  function openDashboard() {
+    chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/index.html') });
+  }
+
+  btnDashboard.addEventListener('click', openDashboard);
+  btnOpenDashboardFull.addEventListener('click', openDashboard);
 });
