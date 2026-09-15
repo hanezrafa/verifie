@@ -30,6 +30,7 @@
       "matches": ["*://docs.google.com/document/*"],
       "js": [
         "src/shared/config.js",
+        "src/content/docs-reader.js",
         "src/shared/editing-tracker.js",
         "src/content/content.js"
       ],

@@ -136,16 +136,54 @@
         </div>
         <div class="document-info">
           <h3 class="document-title" id="doc-title">My Document</h3>
-          <p class="document-date">Open a Google Doc to view its history</p>
+          <p class="document-date" id="doc-status">Open a Google Doc to view live data</p>
+        </div>
+        <div class="live-badge" id="live-badge" style="display:none;">
+          <span class="live-dot"></span>LIVE
         </div>
       </div>
-      <button class="btn-primary" id="btn-load">
+
+      <!-- Live stats -->
+      <div class="live-stats" id="live-stats" style="display:none;">
+        <div class="live-stat">
+          <span class="live-stat-value" id="live-words">0</span>
+          <span class="live-stat-label">Words</span>
+        </div>
+        <div class="live-stat">
+          <span class="live-stat-value" id="live-chars">0</span>
+          <span class="live-stat-label">Characters</span>
+        </div>
+        <div class="live-stat">
+          <span class="live-stat-value" id="live-paragraphs">0</span>
+          <span class="live-stat-label">Paragraphs</span>
+        </div>
+        <div class="live-stat">
+          <span class="live-stat-value" id="live-readtime">0m</span>
+          <span class="live-stat-label">Read Time</span>
+        </div>
+      </div>
+
+      <button class="btn-primary btn-dashboard-cta" id="btn-load">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
+          <rect x="3" y="3" width="7" height="7"></rect>
+          <rect x="14" y="3" width="7" height="7"></rect>
+          <rect x="14" y="14" width="7" height="7"></rect>
+          <rect x="3" y="14" width="7" height="7"></rect>
         </svg>
-        Load Document History
+        <span id="btn-load-label">Open Dashboard</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:auto;">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+          <polyline points="15 3 21 3 21 9"></polyline>
+          <line x1="10" y1="14" x2="21" y2="3"></line>
+        </svg>
+      </button>
+
+      <button class="btn-secondary" id="btn-refresh-live">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+        </svg>
+        Refresh Live Data
       </button>
     </div>
 

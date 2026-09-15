@@ -94,34 +94,121 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Load document button
+  // === Live data from active Google Docs tab ===
+  async function getActiveDocTab() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.url && tab.url.includes('docs.google.com/document')) return tab;
+    return null;
+  }
+
+  async function fetchLiveSnapshot() {
+    const tab = await getActiveDocTab();
+    if (!tab) return null;
+    try {
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getLiveSnapshot' });
+      return response?.snapshot || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function renderLiveSnapshot(snapshot) {
+    if (!snapshot) return;
+
+    // Title
+    const titleEl = document.getElementById('doc-title');
+    titleEl.textContent = snapshot.title || 'Untitled Document';
+    titleEl.style.color = '';
+
+    // Status
+    const statusEl = document.getElementById('doc-status');
+    statusEl.textContent = `Live • updated ${new Date(snapshot.timestamp).toLocaleTimeString()}`;
+
+    // Live badge
+    document.getElementById('live-badge').style.display = 'inline-flex';
+
+    // Live stats grid
+    const statsEl = document.getElementById('live-stats');
+    statsEl.style.display = 'grid';
+    document.getElementById('live-words').textContent = formatNumber(snapshot.wordCount);
+    document.getElementById('live-chars').textContent = formatNumber(snapshot.charCount);
+    document.getElementById('live-paragraphs').textContent = formatNumber(snapshot.paragraphCount || 0);
+    document.getElementById('live-readtime').textContent = `${snapshot.readingTimeMinutes || 0}m`;
+
+    // Update stats tab too
+    updateStats({
+      words: snapshot.wordCount,
+      deletes: 0,
+      time: '0h 0m',
+      edits: 0
+    });
+
+    // Update tracking tab live values
+    const trackCharsEl = document.getElementById('track-chars');
+    if (trackCharsEl) trackCharsEl.textContent = formatNumber(snapshot.charCount);
+  }
+
+  function formatNumber(num) {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return String(num ?? 0);
+  }
+
+  // Open Dashboard button
   const btnLoad = document.getElementById('btn-load');
   btnLoad.addEventListener('click', async () => {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab && tab.url && tab.url.includes('docs.google.com/document')) {
-        chrome.tabs.sendMessage(tab.id, { action: 'loadHistory' }, (response) => {
-          if (chrome.runtime.lastError) {
-            document.getElementById('doc-title').textContent = 'Open a Google Doc first';
-            document.getElementById('doc-title').style.color = '#ef4444';
-          } else if (response && response.title) {
-            document.getElementById('doc-title').textContent = response.title;
-            updateStats(response.stats);
-          }
-        });
-      } else {
-        document.getElementById('doc-title').textContent = 'Not a Google Doc';
-        document.getElementById('doc-title').style.color = '#ef4444';
+    const tab = await getActiveDocTab();
+    if (tab) {
+      // Ask content script to sync + open extension dashboard
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: 'openDashboard' });
+      } catch {
+        chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/index.html') });
       }
-    } catch (err) {
-      console.error('Error loading history:', err);
+    } else {
+      // No Google Doc open — just open the dashboard
+      chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/index.html') });
+    }
+  });
+
+  // Refresh live data button
+  document.getElementById('btn-refresh-live')?.addEventListener('click', async () => {
+    const snapshot = await fetchLiveSnapshot();
+    if (snapshot) {
+      renderLiveSnapshot(snapshot);
+    } else {
+      document.getElementById('doc-status').textContent = 'Open a Google Doc to view live data';
+      document.getElementById('doc-status').style.color = '#ef4444';
+      document.getElementById('live-badge').style.display = 'none';
+      document.getElementById('live-stats').style.display = 'none';
+    }
+  });
+
+  // Auto-load live data when popup opens
+  (async () => {
+    const snapshot = await fetchLiveSnapshot();
+    if (snapshot) renderLiveSnapshot(snapshot);
+  })();
+
+  // Poll live data every 2s while popup is open
+  const livePoll = setInterval(async () => {
+    const snapshot = await fetchLiveSnapshot();
+    if (snapshot) renderLiveSnapshot(snapshot);
+  }, 2000);
+
+  window.addEventListener('unload', () => clearInterval(livePoll));
+
+  // Listen for live updates pushed from content script
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.action === 'liveUpdate' && message.snapshot) {
+      renderLiveSnapshot({ ...message.snapshot, timestamp: Date.now() });
     }
   });
 
   function updateStats(stats) {
     if (!stats) return;
-    document.getElementById('stat-words').textContent = stats.words || 0;
-    document.getElementById('stat-deletes').textContent = stats.deletes || 0;
+    document.getElementById('stat-words').textContent = formatNumber(stats.words || 0);
+    document.getElementById('stat-deletes').textContent = formatNumber(stats.deletes || 0);
     document.getElementById('stat-time').textContent = stats.time || '0h 0m';
     document.getElementById('stat-edits').textContent = stats.edits || 0;
   }

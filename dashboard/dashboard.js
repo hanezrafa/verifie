@@ -1,10 +1,12 @@
 /**
  * Verifie Dashboard Logic
- * Reads data from localStorage / Supabase and renders analytics
+ * Uses DashboardData layer to read real data (extension) or demo (web)
  */
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Navigation
+  let appData = { documents: [], revisions: [], analyses: [], sessions: [], trackingData: {}, mode: 'demo' };
+
+  // === Navigation ===
   const navItems = document.querySelectorAll('.nav-item');
   const views = document.querySelectorAll('.view');
   const viewTitle = document.getElementById('view-title');
@@ -34,98 +36,60 @@ document.addEventListener('DOMContentLoaded', async () => {
         viewSubtitle.textContent = meta.subtitle;
       }
 
-      // Redraw charts when switching views
       renderView(item.dataset.view);
     });
   });
 
-  // Load data
-  let appData = {
-    documents: [],
-    sessions: [],
-    analyses: [],
-    settings: {},
-    endpoints: {}
-  };
-
+  // === Data loading ===
   async function loadData() {
-    const stored = await VerifieStorage.get([
-      'documents', 'sessions', 'analyses', 'trackingData', 'settings', 'endpoints'
-    ]);
+    appData = await DashboardData.load();
+    updateModeIndicator();
+  }
 
-    appData.documents = stored.documents || [];
-    appData.sessions = stored.sessions || [];
-    appData.analyses = stored.analyses || [];
-    appData.settings = { ...VERIFIE_CONFIG.defaults, ...(stored.settings || {}) };
-    appData.endpoints = { ...VERIFIE_CONFIG.endpoints, ...(stored.endpoints || {}) };
+  function updateModeIndicator() {
+    const statusEl = document.getElementById('connection-status');
+    if (!statusEl) return;
+    const isLive = appData.mode === 'live';
+    statusEl.classList.toggle('connected', isLive);
+    statusEl.querySelector('span').textContent = isLive ? 'Live Data' : 'Demo Data';
 
-    // Include tracking data as a pseudo-session
-    if (stored.trackingData) {
-      appData.trackingData = stored.trackingData;
+    // Show a banner if demo
+    let banner = document.getElementById('demo-banner');
+    if (appData.mode === 'demo') {
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'demo-banner';
+        banner.style.cssText = `
+          background:#fffbeb;border:1px solid #fde68a;color:#92400e;
+          padding:10px 16px;border-radius:10px;font-size:13px;
+          margin-bottom:16px;display:flex;align-items:center;gap:8px;
+        `;
+        banner.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>Showing demo data. Install the Verifie extension and open a Google Doc to see your real analytics.</span>
+        `;
+        const content = document.querySelector('.content');
+        content.insertBefore(banner, content.firstChild);
+      }
+    } else if (banner) {
+      banner.remove();
     }
   }
 
-  function computeStats() {
-    const docs = appData.documents;
-    const sessions = appData.sessions;
-
-    const totalChars = appData.trackingData?.charCount || 0;
-    const totalTime = sessions.reduce((sum, s) => sum + (s.duration || 0), 0) / 1000 || 0;
-    const avgAi = appData.analyses.length
-      ? Math.round(appData.analyses.reduce((sum, a) => sum + (a.aiPercent || 0), 0) / appData.analyses.length)
-      : 0;
-
-    return {
-      docs: docs.length,
-      chars: totalChars,
-      hours: (totalTime / 3600).toFixed(1),
-      avgAi
-    };
-  }
-
-  function updateOverview() {
-    const stats = computeStats();
-    document.getElementById('overview-docs').textContent = stats.docs;
-    document.getElementById('overview-chars').textContent = formatNumber(stats.chars);
-    document.getElementById('overview-time').textContent = `${stats.hours}h`;
-    document.getElementById('overview-ai').textContent = `${stats.avgAi}%`;
-    document.getElementById('donut-ai-value').textContent = `${stats.avgAi}%`;
-
-    renderRecentDocs();
-  }
-
-  function renderRecentDocs() {
-    const container = document.getElementById('recent-docs');
-    if (appData.documents.length === 0) return; // Keep empty state
-
-    container.innerHTML = '';
-    appData.documents.slice(0, 5).forEach(doc => {
-      const item = document.createElement('div');
-      item.className = 'doc-item';
-      item.innerHTML = `
-        <div class="doc-item-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-          </svg>
-        </div>
-        <div class="doc-item-info">
-          <div class="doc-item-title">${escapeHtml(doc.title || 'Untitled')}</div>
-          <div class="doc-item-meta">${doc.wordCount || 0} words • ${formatDate(doc.lastModified)}</div>
-        </div>
-      `;
-      container.appendChild(item);
-    });
-  }
-
-  // === Chart Rendering ===
-
+  // === Render ===
   function renderView(viewName) {
     switch (viewName) {
       case 'overview':
         updateOverview();
         drawActivityChart();
         drawAiDonut();
+        break;
+      case 'documents':
+        renderDocuments();
         break;
       case 'analytics':
         drawVelocityChart();
@@ -135,8 +99,121 @@ document.addEventListener('DOMContentLoaded', async () => {
       case 'ai-detection':
         drawAiHistoryChart();
         break;
+      case 'sessions':
+        renderSessions();
+        break;
     }
   }
+
+  function updateOverview() {
+    const stats = DashboardData.computeStats(appData);
+    document.getElementById('overview-docs').textContent = stats.docCount;
+    document.getElementById('overview-chars').textContent = formatNumber(stats.totalChars);
+    document.getElementById('overview-time').textContent = `${stats.totalHours.toFixed(1)}h`;
+    document.getElementById('overview-ai').textContent = `${stats.avgAi}%`;
+    document.getElementById('donut-ai-value').textContent = `${stats.avgAi}%`;
+
+    renderRecentDocs();
+  }
+
+  function renderRecentDocs() {
+    const container = document.getElementById('recent-docs');
+    if (appData.documents.length === 0) return;
+
+    container.innerHTML = '';
+    appData.documents
+      .slice()
+      .sort((a, b) => new Date(b.lastModified || 0) - new Date(a.lastModified || 0))
+      .slice(0, 5)
+      .forEach(doc => {
+        const item = document.createElement('div');
+        item.className = 'doc-item';
+        item.innerHTML = `
+          <div class="doc-item-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+          </div>
+          <div class="doc-item-info">
+            <div class="doc-item-title">${escapeHtml(doc.title || 'Untitled')}</div>
+            <div class="doc-item-meta">${formatNumber(doc.wordCount || 0)} words • ${formatDate(doc.lastModified)}</div>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+  }
+
+  function renderDocuments() {
+    const grid = document.getElementById('doc-grid');
+    if (appData.documents.length === 0) return; // keep empty state
+
+    grid.innerHTML = '';
+    appData.documents.forEach(doc => {
+      const card = document.createElement('div');
+      card.className = 'chart-card';
+      card.style.cursor = 'pointer';
+      card.innerHTML = `
+        <div class="doc-item" style="background:transparent;padding:0;">
+          <div class="doc-item-icon" style="width:44px;height:44px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+          </div>
+          <div class="doc-item-info">
+            <div class="doc-item-title" style="font-size:14px;">${escapeHtml(doc.title || 'Untitled')}</div>
+            <div class="doc-item-meta">Updated ${formatDate(doc.lastModified)}</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;">
+          <div>
+            <div style="font-size:11px;color:#64748b;">Words</div>
+            <div style="font-size:16px;font-weight:700;color:#1e293b;">${formatNumber(doc.wordCount || 0)}</div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:#64748b;">Characters</div>
+            <div style="font-size:16px;font-weight:700;color:#1e293b;">${formatNumber(doc.charCount || 0)}</div>
+          </div>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  function renderSessions() {
+    const container = document.getElementById('session-timeline');
+    const sessions = appData.sessions || [];
+
+    document.getElementById('session-count').textContent = `${sessions.length} sessions`;
+
+    if (sessions.length === 0) return;
+
+    container.innerHTML = '';
+    sessions
+      .slice()
+      .sort((a, b) => (b.startTime || 0) - (a.startTime || 0))
+      .slice(0, 20)
+      .forEach(s => {
+        const item = document.createElement('div');
+        item.className = 'doc-item';
+        item.innerHTML = `
+          <div class="doc-item-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </div>
+          <div class="doc-item-info">
+            <div class="doc-item-title">${escapeHtml(s.documentTitle || 'Document')}</div>
+            <div class="doc-item-meta">${formatDuration(s.duration || 0)} • ${formatNumber(s.charCount || 0)} chars • ${formatDate(s.startTime)}</div>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+  }
+
+  // === Charts ===
 
   function drawActivityChart() {
     const canvas = document.getElementById('activity-chart');
@@ -156,25 +233,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       ctx.stroke();
     }
 
-    // Sample data (replace with real data when available)
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const chars = appData.documents.length ? generateSampleSeries(7, 100, 800) : [];
-    const time = appData.documents.length ? generateSampleSeries(7, 20, 180) : [];
+    const series = DashboardData.buildActivitySeries(appData);
 
-    if (chars.length === 0) {
-      drawEmptyChart(ctx, w, h, 'No activity data yet');
+    if (series.every(s => s.chars === 0 && s.minutes === 0)) {
+      drawEmptyChart(ctx, w, h, 'No activity data yet — start editing a Google Doc');
       return;
     }
 
-    const maxVal = Math.max(...chars, ...time, 1);
+    const maxChars = Math.max(...series.map(s => s.chars), 1);
+    const maxMin = Math.max(...series.map(s => s.minutes), 1);
     const chartW = w - 50;
-    const stepX = chartW / (days.length - 1);
+    const stepX = chartW / (series.length - 1 || 1);
 
-    // Time bars
+    // Minutes bars
     ctx.fillStyle = 'rgba(34, 197, 94, 0.15)';
-    time.forEach((val, i) => {
-      const barH = (val / maxVal) * (h - 40);
-      ctx.fillRect(40 + i * stepX - 12, h - 20 - barH, 24, barH);
+    series.forEach((s, i) => {
+      const barH = (s.minutes / maxMin) * (h - 50);
+      ctx.fillRect(40 + i * stepX - 14, h - 24 - barH, 28, barH);
     });
 
     // Chars line
@@ -183,17 +258,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    chars.forEach((val, i) => {
+    series.forEach((s, i) => {
       const x = 40 + i * stepX;
-      const y = h - 20 - (val / maxVal) * (h - 40);
+      const y = h - 24 - (s.chars / maxChars) * (h - 50);
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     ctx.stroke();
 
     // Points
-    chars.forEach((val, i) => {
+    series.forEach((s, i) => {
       const x = 40 + i * stepX;
-      const y = h - 20 - (val / maxVal) * (h - 40);
+      const y = h - 24 - (s.chars / maxChars) * (h - 50);
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fillStyle = '#3b82f6';
@@ -207,8 +282,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     ctx.fillStyle = '#94a3b8';
     ctx.font = '11px sans-serif';
     ctx.textAlign = 'center';
-    days.forEach((day, i) => {
-      ctx.fillText(day, 40 + i * stepX, h - 4);
+    series.forEach((s, i) => {
+      ctx.fillText(s.label, 40 + i * stepX, h - 6);
     });
   }
 
@@ -221,23 +296,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     const radius = Math.min(cx, cy) - 20;
     ctx.clearRect(0, 0, w, h);
 
-    const stats = computeStats();
+    const stats = DashboardData.computeStats(appData);
     const aiPercent = stats.avgAi / 100;
 
-    // Background circle
+    // Background (human = green)
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.strokeStyle = '#22c55e';
     ctx.lineWidth = 28;
     ctx.stroke();
 
-    // AI arc
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * aiPercent));
-    ctx.strokeStyle = '#3b82f6';
-    ctx.lineWidth = 28;
-    ctx.lineCap = 'round';
-    ctx.stroke();
+    // AI arc (blue)
+    if (aiPercent > 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * aiPercent));
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 28;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
   }
 
   function drawVelocityChart() {
@@ -247,19 +324,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     const w = canvas.width, h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (appData.documents.length === 0 && !appData.trackingData) {
+    // Use sessions sorted by time for velocity trend
+    const sessions = (appData.sessions || []).slice().sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+    if (sessions.length === 0) {
       drawEmptyChart(ctx, w, h, 'No velocity data yet');
       return;
     }
 
-    const data = generateSampleSeries(20, 10, 80);
+    const data = sessions.slice(-20).map(s => {
+      const min = (s.duration || 0) / 60000;
+      return min > 0 ? Math.round((s.charCount || 0) / min) : 0;
+    });
     const maxVal = Math.max(...data, 1);
 
-    // Area fill
+    // Area
     ctx.beginPath();
     ctx.moveTo(0, h);
     data.forEach((val, i) => {
-      const x = (w / (data.length - 1)) * i;
+      const x = (w / (data.length - 1 || 1)) * i;
       const y = h - (val / maxVal) * (h - 30) - 10;
       ctx.lineTo(x, y);
     });
@@ -276,9 +358,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     ctx.strokeStyle = '#3b82f6';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
     data.forEach((val, i) => {
-      const x = (w / (data.length - 1)) * i;
+      const x = (w / (data.length - 1 || 1)) * i;
       const y = h - (val / maxVal) * (h - 30) - 10;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
@@ -292,25 +373,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     const w = canvas.width, h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (appData.documents.length === 0 && !appData.trackingData) {
+    const series = DashboardData.buildHourlySeries(appData);
+    if (series.every(s => s.value === 0)) {
       drawEmptyChart(ctx, w, h, 'No activity data yet');
       return;
     }
 
-    const hours = ['6a', '9a', '12p', '3p', '6p', '9p'];
-    const data = generateSampleSeries(6, 10, 100);
-    const maxVal = Math.max(...data, 1);
-    const barW = (w - 40) / hours.length - 10;
+    const maxVal = Math.max(...series.map(s => s.value), 1);
+    const barW = (w - 40) / series.length - 10;
 
-    data.forEach((val, i) => {
-      const barH = (val / maxVal) * (h - 40);
-      const x = 20 + i * ((w - 40) / hours.length);
+    series.forEach((s, i) => {
+      const barH = (s.value / maxVal) * (h - 40);
+      const x = 20 + i * ((w - 40) / series.length);
       const y = h - 24 - barH;
 
       const grad = ctx.createLinearGradient(0, y, 0, h - 24);
       grad.addColorStop(0, '#3b82f6');
       grad.addColorStop(1, '#60a5fa');
-
       ctx.fillStyle = grad;
       roundRect(ctx, x, y, barW, barH, 6);
       ctx.fill();
@@ -318,7 +397,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       ctx.fillStyle = '#94a3b8';
       ctx.font = '11px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(hours[i], x + barW / 2, h - 8);
+      ctx.fillText(s.label, x + barW / 2, h - 8);
     });
   }
 
@@ -329,25 +408,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     const w = canvas.width, h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (appData.sessions.length === 0 && !appData.trackingData) {
+    const series = DashboardData.buildSessionDistribution(appData);
+    if (series.every(s => s.value === 0)) {
       drawEmptyChart(ctx, w, h, 'No session data yet');
       return;
     }
 
-    const buckets = ['<5m', '5-15m', '15-30m', '30-60m', '1h+'];
-    const data = generateSampleSeries(5, 2, 20);
-    const maxVal = Math.max(...data, 1);
-    const barW = (w - 60) / buckets.length - 20;
+    const maxVal = Math.max(...series.map(s => s.value), 1);
+    const barW = (w - 60) / series.length - 20;
 
-    data.forEach((val, i) => {
-      const barH = (val / maxVal) * (h - 50);
-      const x = 30 + i * ((w - 60) / buckets.length);
+    series.forEach((s, i) => {
+      const barH = (s.value / maxVal) * (h - 50);
+      const x = 30 + i * ((w - 60) / series.length);
       const y = h - 30 - barH;
 
       const grad = ctx.createLinearGradient(0, y, 0, h - 30);
       grad.addColorStop(0, '#1d4ed8');
       grad.addColorStop(1, '#3b82f6');
-
       ctx.fillStyle = grad;
       roundRect(ctx, x, y, barW, barH, 6);
       ctx.fill();
@@ -355,11 +432,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       ctx.fillStyle = '#94a3b8';
       ctx.font = '11px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(buckets[i], x + barW / 2, h - 10);
+      ctx.fillText(s.label, x + barW / 2, h - 10);
 
       ctx.fillStyle = '#1e293b';
       ctx.font = 'bold 12px sans-serif';
-      ctx.fillText(val, x + barW / 2, y - 6);
+      ctx.fillText(s.value, x + barW / 2, y - 6);
     });
   }
 
@@ -370,28 +447,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     const w = canvas.width, h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (appData.analyses.length === 0) {
-      drawEmptyChart(ctx, w, h, 'No analyses yet');
+    const analyses = appData.analyses || [];
+    if (analyses.length === 0) {
+      drawEmptyChart(ctx, w, h, 'No analyses yet — run AI detection from the extension');
       return;
     }
 
-    const data = appData.analyses.slice(-10).map(a => a.aiPercent);
-    const maxVal = 100;
+    const data = analyses.slice(-10).map(a => a.aiPercent || 0);
     const stepX = (w - 40) / Math.max(data.length - 1, 1);
 
     ctx.beginPath();
     ctx.strokeStyle = '#3b82f6';
     ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
     data.forEach((val, i) => {
       const x = 20 + i * stepX;
-      const y = h - 20 - (val / maxVal) * (h - 40);
+      const y = h - 20 - (val / 100) * (h - 40);
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     ctx.stroke();
   }
 
   // === Helpers ===
-
   function drawEmptyChart(ctx, w, h, message) {
     ctx.fillStyle = '#cbd5e1';
     ctx.font = '13px sans-serif';
@@ -410,22 +487,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     ctx.closePath();
   }
 
-  function generateSampleSeries(count, min, max) {
-    return Array.from({ length: count }, () => Math.floor(Math.random() * (max - min)) + min);
-  }
-
   function formatNumber(num) {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
+    return String(num);
+  }
+
+  function formatDuration(ms) {
+    const totalMin = Math.round(ms / 60000);
+    if (totalMin < 60) return `${totalMin}m`;
+    const hours = Math.floor(totalMin / 60);
+    const mins = totalMin % 60;
+    return `${hours}h ${mins}m`;
   }
 
   function formatDate(dateStr) {
     if (!dateStr) return 'Never';
     const d = new Date(dateStr);
-    const now = new Date();
-    const diff = (now - d) / 1000;
-    if (diff < 3600) return 'Just now';
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
     return d.toLocaleDateString();
@@ -437,41 +518,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     return div.innerHTML;
   }
 
-  // === Settings Handlers ===
-
-  document.getElementById('btn-save-supabase').addEventListener('click', async () => {
-    const url = document.getElementById('input-supabase-url').value.trim();
-    const key = document.getElementById('input-supabase-key').value.trim();
-    await VerifieSettings.saveEndpoints({ ...appData.endpoints, supabaseUrl: url, supabaseAnonKey: key });
-    appData.endpoints.supabaseUrl = url;
-    appData.endpoints.supabaseAnonKey = key;
-    updateConnectionStatus();
-    alert('Supabase settings saved!');
+  // === Settings / Buttons ===
+  document.getElementById('btn-refresh')?.addEventListener('click', async () => {
+    await loadData();
+    renderView(document.querySelector('.nav-item.active')?.dataset.view || 'overview');
   });
 
-  document.getElementById('btn-save-hf').addEventListener('click', async () => {
-    const token = document.getElementById('input-hf-token').value.trim();
-    await VerifieSettings.saveEndpoints({ ...appData.endpoints, huggingFaceToken: token });
-    appData.endpoints.huggingFaceToken = token;
-    document.getElementById('hf-badge-2').textContent = token ? 'Configured' : 'Not configured';
-    document.getElementById('hf-badge-2').className = token ? 'badge success' : 'badge';
-    document.getElementById('hf-badge').textContent = token ? 'Configured' : 'Not configured';
-    document.getElementById('hf-badge').className = token ? 'badge success' : 'badge';
-    alert('Hugging Face token saved!');
+  document.getElementById('btn-connect')?.addEventListener('click', () => {
+    const settingsNav = document.querySelector('[data-view="settings"]');
+    if (settingsNav) settingsNav.click();
   });
 
-  document.getElementById('btn-save-worker').addEventListener('click', async () => {
-    const url = document.getElementById('input-worker-url').value.trim();
-    await VerifieSettings.saveEndpoints({ ...appData.endpoints, workerUrl: url });
-    appData.endpoints.workerUrl = url;
-    document.getElementById('gdocs-badge').textContent = url ? 'Configured' : 'Not configured';
-    document.getElementById('gdocs-badge').className = url ? 'badge success' : 'badge';
-    alert('Worker URL saved!');
-  });
-
-  document.getElementById('btn-export-data').addEventListener('click', async () => {
-    const data = await VerifieStorage.get(['documents', 'sessions', 'analyses', 'trackingData']);
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  document.getElementById('btn-export-data')?.addEventListener('click', async () => {
+    const blob = new Blob([JSON.stringify(appData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -480,72 +539,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     URL.revokeObjectURL(url);
   });
 
-  document.getElementById('btn-clear-data').addEventListener('click', async () => {
-    if (confirm('Clear all local data? This cannot be undone.')) {
-      await VerifieStorage.remove(['documents', 'sessions', 'analyses', 'trackingData']);
-      appData.documents = [];
-      appData.sessions = [];
-      appData.analyses = [];
-      updateOverview();
-      alert('Local data cleared.');
+  document.getElementById('btn-export-all')?.addEventListener('click', () => {
+    document.getElementById('btn-export-data')?.click();
+  });
+
+  document.getElementById('btn-clear-data')?.addEventListener('click', async () => {
+    if (!confirm('Clear all local data? This cannot be undone.')) return;
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.clear(() => location.reload());
+    } else {
+      alert('Clearing data is only available in the extension.');
     }
   });
 
-  document.getElementById('btn-refresh').addEventListener('click', async () => {
-    await loadData();
-    updateOverview();
-    alert('Data refreshed.');
-  });
-
-  document.getElementById('btn-connect').addEventListener('click', () => {
-    document.querySelector('[data-view="settings"]').click();
-  });
-
-  function updateConnectionStatus() {
-    const statusEl = document.getElementById('connection-status');
-    const hasCloud = !!appData.endpoints.supabaseUrl;
-    statusEl.classList.toggle('connected', hasCloud);
-    statusEl.querySelector('span').textContent = hasCloud ? 'Cloud Connected' : 'Local Mode';
-    document.getElementById('supabase-badge').textContent = hasCloud ? 'Configured' : 'Not configured';
-    document.getElementById('supabase-badge').className = hasCloud ? 'badge success' : 'badge';
-  }
-
-  // AI mode toggle
-  document.querySelectorAll('.mode-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      appData.settings.aiDetectionMode = btn.dataset.mode;
-      VerifieSettings.save(appData.settings);
+  document.getElementById('search-docs')?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('#doc-grid > .chart-card').forEach(card => {
+      const title = card.querySelector('.doc-item-title')?.textContent.toLowerCase() || '';
+      card.style.display = title.includes(q) ? '' : 'none';
     });
   });
 
-  // Init
+  // === Live updates (extension only) ===
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes) => {
+      if (changes.documents || changes.sessions || changes.trackingData || changes.revisions) {
+        loadData().then(() => {
+          renderView(document.querySelector('.nav-item.active')?.dataset.view || 'overview');
+        });
+      }
+    });
+  }
+
+  // === Init ===
   await loadData();
   updateOverview();
-  updateConnectionStatus();
-
-  // Restore settings inputs
-  document.getElementById('input-supabase-url').value = appData.endpoints.supabaseUrl || '';
-  document.getElementById('input-hf-token').value = appData.endpoints.huggingFaceToken ? '••••••••' : '';
-  document.getElementById('input-worker-url').value = appData.endpoints.workerUrl || '';
-
-  if (appData.endpoints.huggingFaceToken) {
-    document.getElementById('hf-badge').textContent = 'Configured';
-    document.getElementById('hf-badge').className = 'badge success';
-    document.getElementById('hf-badge-2').textContent = 'Configured';
-    document.getElementById('hf-badge-2').className = 'badge success';
-  }
-  if (appData.endpoints.workerUrl) {
-    document.getElementById('gdocs-badge').textContent = 'Configured';
-    document.getElementById('gdocs-badge').className = 'badge success';
-  }
-
-  // Draw initial charts
   drawActivityChart();
   drawAiDonut();
 
-  // Redraw on resize
   window.addEventListener('resize', () => {
     renderView(document.querySelector('.nav-item.active')?.dataset.view || 'overview');
   });

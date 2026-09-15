@@ -6,17 +6,50 @@ Chrome extension + web dashboard for deep insights into Google Docs: edit histor
 
 [![Deploy](https://github.com/hanezrafa/verifie/actions/workflows/deploy.yml/badge.svg)](https://github.com/hanezrafa/verifie/actions/workflows/deploy.yml)
 
+## How It Works
+
+```
+Google Docs page
+      │
+      ▼
+┌──────────────────────┐
+│  GoogleDocsReader    │  Reads title, text, paragraphs in real-time
+│  (content script)    │  MutationObserver + 2s polling
+└──────────┬───────────┘
+           │ snapshot
+           ▼
+┌──────────────────────┐
+│  chrome.storage      │  documents, revisions, trackingData, sessions
+│  (local-first)       │
+└──────────┬───────────┘
+           │
+     ┌─────┴─────┐
+     ▼           ▼
+┌─────────┐  ┌──────────────┐
+│  Popup  │  │  Dashboard   │  Reads the same storage → real analytics
+│ (live)  │  │ (extension)  │
+└─────────┘  └──────────────┘
+```
+
+**The extension reads real data** from the open Google Doc every 2 seconds. Click **Open Dashboard** (in the popup or the in-document toolbar button) to see the full analytics — the dashboard reads the exact same data.
+
 ## Features
 
 | Tab | Description |
 |-----|-------------|
-| **Document** | Document metadata, edit history loading |
+| **Document** | Live word/char/paragraph/read-time + **Open Dashboard** button |
 | **Replay** | Timeline scrubber, play/pause, speed control (0.5x–3x) |
 | **Stats** | Word count, deletes, time spent, edit count + JSON export |
 | **Breakdown** | Contributor charts (IPs, referrers, events) |
 | **AI Detect** | AI vs Human percentage, verdict, detection indicators |
 | **Tracking** | Real-time character count, editing duration, velocity chart, sessions |
-| **Dashboard** | Full web analytics dashboard (new window) |
+| **Dashboard** | Full web analytics dashboard (opens in new tab) |
+
+### In-Document Bar
+When you open a Google Doc, Verifie injects a tiny live bar into the toolbar showing:
+- 🟢 Live character counter
+- ⏱ Session timer
+- **Open Dashboard** button (goes straight to full analytics)
 
 ## Architecture
 
