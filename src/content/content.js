@@ -88,6 +88,11 @@
             Dashboard
           </button>
         </div>
+
+        <div class="verifie-status" id="v-status">
+          <span class="verifie-status-dot" id="v-status-dot"></span>
+          <span id="v-status-text">Waiting for document…</span>
+        </div>
       </div>
     `;
 
@@ -307,6 +312,7 @@
     if (!snapshot) return;
 
     updatePanel(snapshot);
+    updateStatus(snapshot);
 
     if (snapshot.hash === state.lastHash) return;
     const prev = state.lastSnapshot;
@@ -314,6 +320,26 @@
     state.lastHash = snapshot.hash;
     state.lastSnapshot = snapshot;
     persist(snapshot);
+  }
+
+  function updateStatus(snapshot) {
+    const dot = document.getElementById('v-status-dot');
+    const txt = document.getElementById('v-status-text');
+    if (!dot || !txt) return;
+
+    if (snapshot.text && snapshot.text.length > 0) {
+      dot.className = 'verifie-status-dot ok';
+      txt.textContent = `Tracking • ${snapshot.wordCount} words detected`;
+    } else {
+      // No text found — show which strategy failed
+      const d = reader.diagnose ? reader.diagnose() : null;
+      dot.className = 'verifie-status-dot warn';
+      if (d) {
+        txt.textContent = `Detected 0 text. a11y:${d.strategies.a11y} iframe:${d.strategies.iframe} canvas:${d.counts.canvases} lv:${d.counts.lineview}`;
+      } else {
+        txt.textContent = 'No text detected yet — start typing';
+      }
+    }
   }
 
   function persist(snapshot) {

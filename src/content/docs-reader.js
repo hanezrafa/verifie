@@ -1,6 +1,13 @@
 /**
  * Google Docs Content Reader
  * Robustly extracts real-time content from Google Docs DOM.
+ *
+ * Google Docs renders text in several possible ways:
+ *  a) .kix-lineview spans (accessibility / DOM layer)
+ *  b) canvas glyphs with a hidden a11y text layer
+ *  c) text inside the docs-texteventtarget-iframe
+ *
+ * This reader tries all strategies.
  * Idempotent — safe to load multiple times.
  */
 (function (global) {
@@ -23,12 +30,11 @@
       for (const sel of this.titleSelectors) {
         const el = document.querySelector(sel);
         if (el) {
-          const text = (el.value || el.textContent || '').trim();
-          if (text) return text;
+          const t = (el.value || el.textContent || '').trim();
+          if (t) return t;
         }
       }
-      const t = (document.title || '').replace(/\s*-\s*Google Docs\s*$/, '').trim();
-      return t || 'Untitled Document';
+      return (document.title || '').replace(/\s*-\s*Google Docs\s*$/, '').trim() || 'Untitled Document';
     }
 
     getDocumentId() {
@@ -36,27 +42,65 @@
       return m ? m[1] : null;
     }
 
-    /**
-     * Find the element that holds the document text.
-     * Tries many selectors because Google Docs DOM varies.
-     */
+    // ---------------------------------------------------------------
+    // Accessibility "hidden text" layer — the most reliable source
+    // ---------------------------------------------------------------
+    getA11yText() {
+      // Google Docs exposes text via these containers
+      const containers = [
+        '.kix-page-content-wrapper',
+        '.kix-appview-editor',
+        '#docs-editor'
+      ];
+
+      for (const sel of containers) {
+        const root = document.querySelector(sel);
+        if (!root) continue;
+
+        // Collect text from line views / paragraph renderers inside
+        const parts = [];
+        const nodes = root.querySelectorAll('.kix-lineview, .kix-paragraphrenderer, [class*="paragraph"]');
+        nodes.forEach(n => {
+          const txt = (n.innerText || n.textContent || '').replace(/\u00A0/g, ' ');
+          if (txt.trim()) parts.push(txt.replace(/\n+$/, ''));
+        });
+
+        if (parts.length > 0) return parts.join('\n');
+      }
+      return '';
+    }
+
+    // ---------------------------------------------------------------
+    // Read text from the editor iframe (same-origin)
+    // ---------------------------------------------------------------
+    getIframeText() {
+      const iframes = Array.from(document.querySelectorAll('iframe'));
+      for (const frame of iframes) {
+        try {
+          const doc = frame.contentDocument;
+          if (!doc) continue;
+          const body = doc.body;
+          if (!body) continue;
+          const text = (body.innerText || body.textContent || '').trim();
+          if (text.length > 0) return text;
+        } catch (e) {
+          // cross-origin — skip
+        }
+      }
+      return '';
+    }
+
+    // ---------------------------------------------------------------
+    // Broad fallbacks
+    // ---------------------------------------------------------------
     getContentElement() {
       const selectors = [
         '.kix-page-content-wrapper',
         '.kix-page',
         '.kix-appview-editor',
         '.docs-editor-container',
-        '[role="document"]',
-        '.kix-canvas-tile-content'
+        '[role="document"]'
       ];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el) {
-          // Ensure it actually has text
-          if ((el.innerText || el.textContent || '').trim().length > 0) return el;
-        }
-      }
-      // Last resort: return first selector that exists even if empty
       for (const sel of selectors) {
         const el = document.querySelector(sel);
         if (el) return el;
@@ -64,38 +108,37 @@
       return null;
     }
 
-    /**
-     * Extract text. Google Docs renders each line in .kix-lineview.
-     * We join line contents in reading order.
-     */
-    getText() {
-      // Strategy 1: paragraph/line renderers (most accurate)
-      const lineText = this.getTextFromLines();
-      if (lineText && lineText.trim().length > 0) return this.normalize(lineText);
-
-      // Strategy 2: content wrapper innerText
+    getContainerText() {
       const el = this.getContentElement();
-      if (el) {
-        const text = el.innerText || '';
-        if (text.trim().length > 0) return this.normalize(text);
-      }
-
-      return '';
+      if (!el) return '';
+      return (el.innerText || el.textContent || '').replace(/\u00A0/g, ' ').trim();
     }
 
-    getTextFromLines() {
-      // Newer Docs use .kix-lineview; older use .kix-paragraphrenderer
-      let lines = document.querySelectorAll('.kix-lineview');
-      if (lines.length === 0) lines = document.querySelectorAll('.kix-paragraphrenderer');
-      if (lines.length === 0) lines = document.querySelectorAll('[class*="lineview"]');
-      if (lines.length === 0) return '';
+    // ---------------------------------------------------------------
+    // Main text extraction — try every strategy, return the longest
+    // ---------------------------------------------------------------
+    getText() {
+      const candidates = [
+        this.getA11yText(),
+        this.getIframeText(),
+        this.getContainerText(),
+        this.getBodyEditorText()
+      ].filter(t => t && t.trim().length > 0);
 
-      const out = [];
-      lines.forEach(line => {
-        const t = (line.innerText || line.textContent || '').replace(/\u00A0/g, ' ');
-        if (t.length > 0) out.push(t.replace(/\n+$/, ''));
-      });
-      return out.join('\n');
+      if (candidates.length === 0) return '';
+
+      // Choose the longest meaningful candidate
+      candidates.sort((a, b) => b.length - a.length);
+      return this.normalize(candidates[0]);
+    }
+
+    getBodyEditorText() {
+      // Look for any element that looks like the editor region
+      const region = document.querySelector('.docs-editor') ||
+                     document.querySelector('#docs-editor-container') ||
+                     document.querySelector('.kix-appview');
+      if (!region) return '';
+      return (region.innerText || '').trim();
     }
 
     normalize(text) {
@@ -104,7 +147,6 @@
         .replace(/\r\n/g, '\n')
         .replace(/[ \t]+\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
-        .replace(/[ \t]{2,}/g, ' ')
         .trim();
     }
 
@@ -142,23 +184,25 @@
       return !!this.getContentElement();
     }
 
-    /**
-     * Diagnostic info — helps debug when detection fails
-     */
     diagnose() {
+      const strategies = {
+        a11y: this.getA11yText().length,
+        iframe: this.getIframeText().length,
+        container: this.getContainerText().length,
+        bodyEditor: this.getBodyEditorText().length
+      };
       const counts = {
         lineview: document.querySelectorAll('.kix-lineview').length,
         paragraph: document.querySelectorAll('.kix-paragraphrenderer').length,
         pageContent: document.querySelectorAll('.kix-page-content-wrapper').length,
-        page: document.querySelectorAll('.kix-page').length,
-        editor: document.querySelectorAll('.kix-appview-editor').length,
+        appview: document.querySelectorAll('.kix-appview-editor').length,
         editorContainer: document.querySelectorAll('.docs-editor-container').length,
         roleDocument: document.querySelectorAll('[role="document"]').length,
-        lineviewAny: document.querySelectorAll('[class*="lineview"]').length,
-        frames: window.frames.length
+        iframes: document.querySelectorAll('iframe').length,
+        canvases: document.querySelectorAll('canvas').length
       };
       const text = this.getText();
-      return { counts, textLength: text.length, textPreview: text.slice(0, 80) };
+      return { strategies, counts, textLength: text.length, textPreview: text.slice(0, 80) };
     }
   }
 
