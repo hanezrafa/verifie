@@ -11,8 +11,59 @@
     lastSnapshot: null,
     active: true,
     panel: null,
-    sessionStart: Date.now()
+    sessionStart: Date.now(),
+    // Keystroke-based tracking (works even when Docs renders on canvas)
+    typedChars: 0,
+    deletedChars: 0,
+    keystrokes: 0,
+    wordBaseline: null
   };
+
+  // ============================================================
+  // KEYSTROKE TRACKING (primary — works regardless of rendering)
+  // ============================================================
+  function setupKeystrokeTracking() {
+    // Capture keystrokes in the top frame AND the docs iframe
+    const targets = [document];
+    document.querySelectorAll('iframe').forEach(f => {
+      try { if (f.contentDocument) targets.push(f.contentDocument); } catch (e) {}
+    });
+
+    targets.forEach(doc => {
+      doc.addEventListener('keydown', (e) => {
+        if (!state.active) return;
+        if (e.ctrlKey || e.metaKey || e.altKey) return; // ignore shortcuts
+
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+          state.deletedChars++;
+        } else if (e.key.length === 1) {
+          state.typedChars++;
+        }
+        state.keystrokes++;
+        updatePanelFromKeystrokes();
+      }, true);
+
+      doc.addEventListener('paste', (e) => {
+        if (!state.active) return;
+        const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+        if (text.length > 0) {
+          state.typedChars += text.length;
+          updatePanelFromKeystrokes();
+        }
+      }, true);
+    });
+  }
+
+  function updatePanelFromKeystrokes() {
+    // If text extraction is failing, show keystroke-derived numbers
+    const extracted = state.lastSnapshot && state.lastSnapshot.text ? state.lastSnapshot.text.length : 0;
+    if (extracted > 0) return; // real text available — leave panel to snapshot
+
+    const net = Math.max(0, state.typedChars - state.deletedChars);
+    setText('v-chars', formatNumber(net));
+    setText('v-words', formatNumber(Math.round(net / 5))); // ~5 chars per word
+    setText('v-paras', formatNumber(state.keystrokes > 0 ? 1 : 0));
+  }
 
   // ============================================================
   // FLOATING PANEL — always visible inside Google Docs
@@ -156,9 +207,12 @@
   // ============================================================
   function updatePanel(snapshot) {
     if (!snapshot) return;
-    setText('v-words', formatNumber(snapshot.wordCount));
-    setText('v-chars', formatNumber(snapshot.charCount));
-    setText('v-paras', formatNumber(snapshot.paragraphCount));
+    // Only override with extracted text if we actually got some
+    if (snapshot.text && snapshot.text.length > 0) {
+      setText('v-words', formatNumber(snapshot.wordCount));
+      setText('v-chars', formatNumber(snapshot.charCount));
+      setText('v-paras', formatNumber(snapshot.paragraphCount));
+    }
   }
 
   function setText(id, val) {
@@ -311,14 +365,19 @@
     const snapshot = reader.getSnapshot();
     if (!snapshot) return;
 
+    state.lastSnapshot = snapshot;
     updatePanel(snapshot);
     updateStatus(snapshot);
 
-    if (snapshot.hash === state.lastHash) return;
+    // Persist if text changed OR keystrokes changed
+    const textChanged = snapshot.hash !== state.lastHash;
+    const keyChanged = state._lastKeystrokes !== state.keystrokes;
+    if (!textChanged && !keyChanged) return;
+
     const prev = state.lastSnapshot;
     snapshot.delta = prev ? snapshot.charCount - prev.charCount : 0;
     state.lastHash = snapshot.hash;
-    state.lastSnapshot = snapshot;
+    state._lastKeystrokes = state.keystrokes;
     persist(snapshot);
   }
 
@@ -327,24 +386,31 @@
     const txt = document.getElementById('v-status-text');
     if (!dot || !txt) return;
 
-    if (snapshot.text && snapshot.text.length > 0) {
+    const extracted = snapshot && snapshot.text ? snapshot.text.length : 0;
+    const net = Math.max(0, state.typedChars - state.deletedChars);
+
+    if (extracted > 0) {
       dot.className = 'verifie-status-dot ok';
-      txt.textContent = `Tracking • ${snapshot.wordCount} words detected`;
+      txt.textContent = `Live • ${snapshot.wordCount} words • ${formatNumber(snapshot.charCount)} chars`;
+    } else if (state.keystrokes > 0) {
+      dot.className = 'verifie-status-dot ok';
+      txt.textContent = `Live (keystrokes) • ~${formatNumber(net)} chars • ${state.keystrokes} keys`;
     } else {
-      // No text found — show which strategy failed
-      const d = reader.diagnose ? reader.diagnose() : null;
       dot.className = 'verifie-status-dot warn';
-      if (d) {
-        txt.textContent = `Detected 0 text. a11y:${d.strategies.a11y} iframe:${d.strategies.iframe} canvas:${d.counts.canvases} lv:${d.counts.lineview}`;
-      } else {
-        txt.textContent = 'No text detected yet — start typing';
-      }
+      txt.textContent = 'Start typing to begin tracking…';
     }
   }
 
   function persist(snapshot) {
     const docId = snapshot.documentId;
     if (!docId) return;
+
+    const hasText = snapshot.text && snapshot.text.length > 0;
+    const netChars = Math.max(0, state.typedChars - state.deletedChars);
+
+    // If no text extracted and no keystrokes, nothing to save
+    if (!hasText && state.keystrokes === 0) return;
+
     safeChrome(() => {
       chrome.storage.local.get(['documents', 'revisions', 'trackingData'], (result) => {
         if (!result) return;
@@ -357,10 +423,15 @@
           google_doc_id: docId,
           title: snapshot.title,
           url: snapshot.url,
-          wordCount: snapshot.wordCount,
-          charCount: snapshot.charCount,
-          paragraphCount: snapshot.paragraphCount,
-          readingTimeMinutes: snapshot.readingTimeMinutes,
+          // Prefer extracted text; fall back to keystroke estimate
+          wordCount: hasText ? snapshot.wordCount : Math.round(netChars / 5),
+          charCount: hasText ? snapshot.charCount : netChars,
+          paragraphCount: hasText ? snapshot.paragraphCount : 0,
+          readingTimeMinutes: hasText ? snapshot.readingTimeMinutes : Math.max(1, Math.ceil((netChars / 5) / 200)),
+          typedChars: state.typedChars,
+          deletedChars: state.deletedChars,
+          keystrokes: state.keystrokes,
+          textDetected: hasText,
           lastModified: new Date(now).toISOString(),
           firstSeen: doc ? doc.firstSeen : new Date(now).toISOString()
         };
@@ -370,8 +441,8 @@
         revisions.push({
           document_id: docId,
           timestamp: new Date(now).toISOString(),
-          wordCount: snapshot.wordCount,
-          charCount: snapshot.charCount,
+          wordCount: rec.wordCount,
+          charCount: rec.charCount,
           delta: snapshot.delta || 0
         });
         while (revisions.length > 500) revisions.shift();
@@ -385,10 +456,13 @@
             ...tracking,
             active: state.active,
             charCount: documents.reduce((s, d) => s + (d.charCount || 0), 0),
+            typedChars: state.typedChars,
+            deletedChars: state.deletedChars,
+            keystrokes: state.keystrokes,
             sessionStart,
             sessionDuration: now - sessionStart,
             lastUpdate: now,
-            currentDoc: { id: docId, title: snapshot.title, wordCount: snapshot.wordCount }
+            currentDoc: { id: docId, title: snapshot.title, wordCount: rec.wordCount, charCount: rec.charCount }
           }
         });
       });
@@ -480,25 +554,29 @@
   function start() {
     createPanel();
     setupMessages();
+    setupKeystrokeTracking();
 
-    // Wait for Docs to render, then begin polling
+    // Refresh iframe listeners periodically (Docs may add iframes later)
+    setInterval(setupKeystrokeTracking, 10000);
+
+    // Poll for content; also works with keystroke fallback
     let tries = 0;
-    const wait = setInterval(() => {
+    state._interval = setInterval(() => {
       tries++;
       if (reader && reader.isReady()) {
-        clearInterval(wait);
         capture();
-        state._interval = setInterval(capture, 2000);
-        if (reader.diagnose) {
-          console.log('[Verifie] Ready. Diagnostics:', reader.diagnose());
-        }
-      } else if (tries > 60) {
-        clearInterval(wait);
-        if (reader && reader.diagnose) {
-          console.warn('[Verifie] Content not detected after 30s. Diagnostics:', reader.diagnose());
-        }
       }
-    }, 500);
+      if (tries === 5 && reader && reader.diagnose) {
+        console.log('[Verifie] Diagnostics:', reader.diagnose());
+      }
+    }, 2000);
+
+    // Always refresh panel from keystrokes as backup
+    setInterval(() => {
+      updatePanelFromKeystrokes();
+      if (state.lastSnapshot) updateStatus(state.lastSnapshot);
+      else updateStatus(null);
+    }, 1000);
 
     // Session timer
     setInterval(tickSession, 1000);
